@@ -1,0 +1,43 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+
+# Vite cache
+.vite
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Test output
+test-results/
+
+# Local config
+*.local
+.claude/
+
+# Data backups
+*.snapvault
+*.snapkey
+/backups/
+
+# Generated test workbooks
+test-data/*.xlsx
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Agent working memory (project-local, not source)
+.workbuddy/memory/
+
+# PWA dev build output
+dev-dist/
+
+# Local design & product docs (not source)
+/E2EE_SYNC_DESIGN.md
+/PRD.md

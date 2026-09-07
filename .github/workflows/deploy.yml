@@ -1,0 +1,46 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # SheetJS 0.20.3 发布在官方 CDN，npm 官方源没有该版本
+      - run: npm ci --no-audit --no-fund
+      # 仓库名为 snapworth，Pages 项目站地址为 https://<用户名>.github.io/snapworth/
+      # --base 让静态资源走子路径；App 的 BrowserRouter basename 同步取自 BASE_URL
+      - run: npx tsc -b && npx vite build --base=/snapworth/
+      # GitHub Pages 对未知路径返回 404；复制一份 index.html 作为 404.html，
+      # 浏览器地址不变，SPA 启动后由前端路由接管（/analytics 等深链可直达）
+      - run: cp dist/index.html dist/404.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

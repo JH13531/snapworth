@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!--
+      Content Security Policy：限制脚本 / 样式 / 网络请求来源，降低 XSS 攻击面。
+      - script-src 'self' 'wasm-unsafe-eval'：只允许本站脚本，阻止内联脚本注入；
+        'wasm-unsafe-eval' 放行 hash-wasm(argon2id) 的 WebAssembly 编译，
+        不同于 'unsafe-eval'，它不允许 JS eval()
+      - style-src 'unsafe-inline'：Tailwind / ECharts 大量使用内联样式，暂无法避免
+      - connect-src：仅允许汇率 API（欧洲央行 ECB + 两个公共 CDN 兜底）
+      - worker-src blob：Service Worker 以 blob URL 注册
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'wasm-unsafe-eval';
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: blob:;
+      font-src 'self' data:;
+      connect-src 'self' https://data-api.ecb.europa.eu https://cdn.jsdelivr.net https://currency-api.pages.dev;
+      worker-src 'self' blob:;
+      manifest-src 'self';
+      base-uri 'self';
+      form-action 'self';
+    " />
+    <title>Snapworth · 资产复盘</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
