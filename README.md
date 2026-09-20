@@ -45,7 +45,16 @@ npm run dev
 
 访问 http://localhost:5174 （开发服务器固定端口）。
 
-Windows 用户也可直接双击 `启动资产复盘.bat`，首次运行会自动安装依赖并启动。
+## 最终用户本地运行
+
+最终用户无需安装依赖或构建：到仓库的 **Releases** 页面下载最新的 `snapworth-vX.X.X.zip`，解压后双击启动脚本即可（脚本会用本机 Python 或 Node 把 `dist/` 起在 http://localhost:5174 ，仅监听本机回环地址）：
+
+- Windows：双击 `启动资产复盘.bat`
+- Linux / macOS：运行 `./启动资产复盘.sh`
+
+要求：系统装有 Python 3 或 Node.js 任一即可。
+
+> 开发者发布新版本：推送 tag 即可自动构建并发布安装包，例如 `git tag v0.1.1 && git push origin v0.1.1`（见 `.github/workflows/release.yml`）。
 
 ## 常用脚本
 

@@ -1,0 +1,41 @@
+name: Release
+
+# 打 tag 时自动构建并发布安装包：
+#   git tag v0.1.1 && git push origin v0.1.1
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # SheetJS 0.20.3 发布在官方 CDN，npm 官方源没有该版本
+      - run: npm ci --no-audit --no-fund
+      # 本地运行直接访问 http://localhost:5174/ ，必须用默认 base="/"
+      # （与 deploy.yml 给 Pages 用的 --base=/snapworth/ 不同，不能复用同一份构建）
+      - run: npm run build
+
+      # 只打包 dist + 启动脚本 + 说明文档。
+      # runner 上只有 git 仓库内容；*.snapvault / *.snapkey / backups/ 等隐私数据
+      # 已被 .gitignore 排除，不存在于仓库，自然也不会进入发行包。
+      - name: Package
+        run: |
+          mkdir -p release/snapworth
+          cp -r dist release/snapworth/
+          cp 启动资产复盘.bat 启动资产复盘.sh README.md LICENSE release/snapworth/
+          cd release
+          zip -r "snapworth-${GITHUB_REF_NAME}.zip" snapworth
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/snapworth-*.zip
+          generate_release_notes: true
