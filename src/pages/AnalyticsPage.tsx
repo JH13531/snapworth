@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { useAccounts, useSubAccountsWithReady, useSnapshotsForMonths, useExchangeRates, useMonthlyReviews, useSnapshots } from '@/hooks/useData'
 import { useSettingsStore } from '@/store/settings'
-import { summarizeMonth, formatMoney, rateFor, buildSnapshotMap, snapCurrency, allMonths, assessDebtHealth, summarizeMonthByCategory, pctChange } from '@/lib/money'
+import { summarizeMonth, summarizeAccountMonth, formatMoney, allMonths, assessDebtHealth, summarizeMonthByCategory, pctChange } from '@/lib/money'
 import { categoryLabel } from '@/types'
 import { currentMonth, prevMonth, nextMonth, formatMonth, addMonths } from '@/lib/date'
 import CompositionChart from '@/components/CompositionChart'
@@ -119,20 +119,14 @@ export default function AnalyticsPage() {
       .sort((a, b) => a.sort_order - b.sort_order)
   }, [accounts, subAccounts, snapshots, tab, filterCat])
 
-  const snapMap = useMemo(() => buildSnapshotMap(snapshots), [snapshots])
-
+  // 按子账户聚合各账户当月/上月余额（不能直接按主账户键查快照：
+  // 多子账户时该键会被覆盖成「最后一个子账户」的余额，导致变动额失真）
   const topChanges = useMemo(() => {
     return accounts
       .filter((a) => !a.archived && a.include_in_networth)
       .map((a) => {
-        const cur = snapMap.get(`${a.id}|${selectedMonth}`)
-        const prevM = prevMonth(selectedMonth)
-        const prevS = snapMap.get(`${a.id}|${prevM}`)
-        if (!cur && !prevS) return null
-        const curRate = cur ? rateFor(rates, snapCurrency(cur, a), selectedMonth, base) : null
-        const prevRate = prevS ? rateFor(rates, snapCurrency(prevS, a), prevM, base) : null
-        const curB = cur && curRate ? new Decimal(cur.balance).mul(curRate) : new Decimal(0)
-        const prevB = prevS && prevRate ? new Decimal(prevS.balance).mul(prevRate) : new Decimal(0)
+        const curB = summarizeAccountMonth(a, subAccounts, snapshots, rates, selectedMonth, base)
+        const prevB = summarizeAccountMonth(a, subAccounts, snapshots, rates, prevM, base)
         if (curB.isZero() && prevB.isZero()) return null
         const raw = curB.sub(prevB)
         const diff = a.type === 'asset' ? raw : raw.neg()
@@ -140,7 +134,7 @@ export default function AnalyticsPage() {
       })
       .filter((x): x is { account: typeof accounts[0]; diff: Decimal } => x !== null && !x.diff.isZero())
       .sort((a, b) => b.diff.abs().minus(a.diff.abs()).toNumber())
-  }, [accounts, snapMap, rates, selectedMonth, base])
+  }, [accounts, subAccounts, snapshots, rates, selectedMonth, prevM, base])
 
   const filteredChanges = useMemo(() => {
     const filtered = topChanges.filter((x) => (changeTab === 'up' ? x.diff.gt(0) : x.diff.lt(0)))

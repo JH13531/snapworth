@@ -29,15 +29,44 @@ export function rateFor(rates: ExchangeRate[], currency: string, month: string, 
  */
 export function buildSnapshotMap(snapshots: Snapshot[]): Map<string, Snapshot> {
   const map = new Map<string, Snapshot>()
+  // 按 账户|月份 分组子账户快照，用于生成聚合主账户键
+  const groups = new Map<string, Snapshot[]>()
   for (const s of snapshots) {
     // 子账户快照：account_id|month|sub_account_id
     // 主账户快照（旧数据）：account_id|month
-    // 两种都存，方便查询
     if (s.sub_account_id) {
       map.set(`${s.account_id}|${s.month}|${s.sub_account_id}`, s)
+      const gk = `${s.account_id}|${s.month}`
+      const g = groups.get(gk)
+      if (g) g.push(s)
+      else groups.set(gk, [s])
+    } else {
+      // 兼容旧格式
+      map.set(`${s.account_id}|${s.month}`, s)
     }
-    // 兼容旧格式
-    map.set(`${s.account_id}|${s.month}`, s)
+  }
+  // 主账户键 = 该账户当月各子账户余额之和（合成快照），替代旧的「后写入的
+  // 子账户覆盖主账户键」行为——后者会让按主账户取数的调用方只看到一个子账户。
+  // 仅在所有子账户同币种时聚合：跨币种直接相加没有意义，此时主账户键保持缺失，
+  // 调用方应改用按子账户折算汇率的 summarizeAccountMonth。
+  for (const [gk, snaps] of groups) {
+    const currencies = new Set(snaps.map((s) => s.currency ?? ''))
+    if (currencies.size > 1) continue
+    let sum = new Decimal(0)
+    let counted = 0
+    let valid = true
+    for (const s of snaps) {
+      if (s.balance === '' || s.balance == null) continue
+      try {
+        sum = sum.add(new Decimal(s.balance))
+        counted++
+      } catch {
+        valid = false
+        break
+      }
+    }
+    if (!valid || counted === 0) continue
+    map.set(gk, { ...snaps[0], id: `__agg__${gk}`, sub_account_id: undefined, balance: sum.toString() })
   }
   return map
 }

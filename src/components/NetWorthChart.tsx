@@ -179,7 +179,7 @@ export default function NetWorthChart({
         },
       ],
     }
-  }, [accounts, snapshots, rates, base, hide, invertColor, range, t, fillHint])
+  }, [accounts, subAccounts, snapshots, rates, base, hide, invertColor, range, t, fillHint])
 
   // 使用 ZRender 点击事件 — 点击图表网格任意位置都能触发，而非仅在数据点上
   useEffect(() => {

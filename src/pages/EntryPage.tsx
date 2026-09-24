@@ -6,7 +6,7 @@ import { useSettingsStore } from '@/store/settings'
 import { db, uuid } from '@/db'
 import { type Account, type SubAccount, subAccountName, subAccountIcon, subAccountColor } from '@/types'
 import { currentMonth, prevMonth, nextMonth, formatMonth } from '@/lib/date'
-import { summarizeMonth, formatMoney, pctChange, nearestPriorMonth, latestSnapshotByAccount } from '@/lib/money'
+import { summarizeMonth, formatMoney, pctChange, nearestPriorMonth } from '@/lib/money'
 import Decimal from 'decimal.js'
 import { Icon } from '@/components/Icon'
 import { MonthPicker } from '@/components/MonthPicker'
@@ -29,6 +29,12 @@ function addCommas(s: string): string {
   const parts = s.split('.')
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return parts.join('.')
+}
+
+/** 是否为完整合法数字；输入过程中的中间态（如 "-"、"1.2.3"）返回 false，渲染期必须先校验再交给 Decimal */
+function isValidNumber(s: string): boolean {
+  if (s === '') return false
+  try { new Decimal(s); return true } catch { return false }
 }
 
 export default function EntryPage() {
@@ -165,10 +171,18 @@ export default function EntryPage() {
     })
   }, [allActiveSubAccounts, accounts])
 
-  const latestByAccount = useMemo(
-    () => latestSnapshotByAccount(snapshots, month),
-    [snapshots, month],
-  )
+  /** 每个子账户本月之前最近的一条快照（key = sub_account_id；旧主账户数据为 account_id）。
+   *  不能按主账户聚合——否则新子账户会错误地继承同账户下其他子账户的历史余额。 */
+  const latestBySub = useMemo(() => {
+    const map = new Map<string, (typeof snapshots)[number]>()
+    for (const s of snapshots) {
+      if (s.month >= month) continue
+      const key = s.sub_account_id ?? s.account_id
+      const cur = map.get(key)
+      if (!cur || s.month > cur.month) map.set(key, s)
+    }
+    return map
+  }, [snapshots, month])
 
   const currentSummary = useMemo(() => {
     const draftSnaps = [...snapshots]
@@ -177,7 +191,7 @@ export default function EntryPage() {
     )
     for (const acc of allActiveSubAccounts) {
       const draft = balances[acc.id]?.trim() ?? ''
-      if (!monthSnapIds.has(acc.id) && draft !== '') {
+      if (!monthSnapIds.has(acc.id) && draft !== '' && isValidNumber(stripCommas(draft))) {
         draftSnaps.push({
           id: `__draft_${acc.id}`,
           account_id: acc.account_id,
@@ -196,7 +210,7 @@ export default function EntryPage() {
         if (s.month !== month) return s
         const draft = balances[s.account_id]
         const cleanDraft = draft ? stripCommas(draft.trim()) : ''
-        return { ...s, balance: cleanDraft !== '' ? cleanDraft : s.balance }
+        return { ...s, balance: cleanDraft !== '' && isValidNumber(cleanDraft) ? cleanDraft : s.balance }
       }),
       rates,
       month,
@@ -229,12 +243,11 @@ export default function EntryPage() {
   }, [snapshots, month])
 
   function fillLatest() {
-    const latest = latestSnapshotByAccount(snapshots, month)
     let filled = 0
     setBalances((cur) => {
       const next = { ...cur }
       for (const acc of allActiveSubAccounts) {
-        const prev = latest.get(acc.account_id)
+        const prev = latestBySub.get(acc.id)
         if (prev && !next[acc.id]) {
           next[acc.id] = prev.balance
           filled++
@@ -250,7 +263,7 @@ export default function EntryPage() {
   }
 
   function fillOneLatest(accId: string) {
-    const prev = latestSnapshotByAccount(snapshots, month).get(accId)
+    const prev = latestBySub.get(accId)
     if (!prev) return
     setBalances((cur) => ({ ...cur, [accId]: prev.balance }))
   }
@@ -585,12 +598,14 @@ export default function EntryPage() {
                     const rawVal = balances[sub.id] ?? ''
                     const displayVal = getInputDisplay(sub.id, rawVal)
                     const prevMonthSnap = snapshots.find((s) => (s.sub_account_id ?? s.account_id) === sub.id && s.month === prevMonth(month))
-                    const baselineSnap = prevMonthSnap ?? latestByAccount.get(sub.account_id)
+                    const baselineSnap = prevMonthSnap ?? latestBySub.get(sub.id)
                     const baselineLabel = prevMonthSnap
                       ? t('entry.prev_month_short')
                       : (baselineSnap ? t('entry.recent_month', { month: baselineSnap.month.slice(5) }) : '')
                     const cleanVal = stripCommas(rawVal)
-                    const diff = cleanVal && baselineSnap ? new Decimal(cleanVal).sub(new Decimal(baselineSnap.balance)) : null
+                    const diff = cleanVal && baselineSnap && isValidNumber(cleanVal)
+                      ? new Decimal(cleanVal).sub(new Decimal(baselineSnap.balance))
+                      : null
                     const diffUp = diff ? (sub.type === 'asset' ? diff.gte(0) : diff.lte(0)) : false
                     const diffColor = !diff || diff.isZero() ? 'text-slate-400'
                       : invert

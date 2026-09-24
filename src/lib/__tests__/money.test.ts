@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeMonth, rateFor, pctChange, formatMoney, snapCurrency, nearestPriorMonth, latestSnapshotByAccount, summarizeAccountMonth } from '../money'
+import { summarizeMonth, rateFor, pctChange, formatMoney, snapCurrency, nearestPriorMonth, latestSnapshotByAccount, summarizeAccountMonth, buildSnapshotMap } from '../money'
 import type { Account, Snapshot, ExchangeRate, SubAccount } from '@/types'
 import Decimal from 'decimal.js'
 
@@ -196,5 +196,58 @@ describe('summarizeAccountMonth', () => {
     const account = makeAccount({ id: 'a1' })
     const total = summarizeAccountMonth(account, [], [], [], '2026-08', 'CNY')
     expect(total.toNumber()).toBe(0)
+  })
+})
+
+describe('buildSnapshotMap 主账户键聚合', () => {
+  it('主账户键 = 各子账户快照之和（同币种），而非最后一个子账户', () => {
+    const snapshots = [
+      makeSnap({ id: 'n1', account_id: 'a1', sub_account_id: 's1', month: '2026-09', balance: '100.10', currency: 'CNY' }),
+      makeSnap({ id: 'n2', account_id: 'a1', sub_account_id: 's2', month: '2026-09', balance: '200.20', currency: 'CNY' }),
+    ]
+    const map = buildSnapshotMap(snapshots)
+    const agg = map.get('a1|2026-09')
+    expect(agg?.balance).toBe('300.3')
+    expect(agg?.currency).toBe('CNY')
+    expect(agg?.sub_account_id).toBeUndefined()
+    // 子账户键不受影响
+    expect(map.get('a1|2026-09|s1')?.balance).toBe('100.10')
+    expect(map.get('a1|2026-09|s2')?.balance).toBe('200.20')
+  })
+
+  it('支持负数（如信用卡溢缴款）参与求和', () => {
+    const snapshots = [
+      makeSnap({ id: 'n1', account_id: 'a1', sub_account_id: 's1', month: '2026-09', balance: '-500', currency: 'CNY' }),
+      makeSnap({ id: 'n2', account_id: 'a1', sub_account_id: 's2', month: '2026-09', balance: '200', currency: 'CNY' }),
+    ]
+    const map = buildSnapshotMap(snapshots)
+    expect(map.get('a1|2026-09')?.balance).toBe('-300')
+  })
+
+  it('混合币种不生成主账户聚合键（直接相加会失去意义）', () => {
+    const snapshots = [
+      makeSnap({ id: 'n1', account_id: 'a1', sub_account_id: 's1', month: '2026-09', balance: '1000', currency: 'CNY' }),
+      makeSnap({ id: 'n2', account_id: 'a1', sub_account_id: 's2', month: '2026-09', balance: '100', currency: 'USD' }),
+    ]
+    const map = buildSnapshotMap(snapshots)
+    expect(map.has('a1|2026-09')).toBe(false)
+  })
+
+  it('旧格式快照（无 sub_account_id）仍直接作为主账户键', () => {
+    const snapshots = [
+      makeSnap({ id: 'n1', account_id: 'a1', month: '2026-08', balance: '1000', currency: 'CNY' }),
+    ]
+    const map = buildSnapshotMap(snapshots)
+    expect(map.get('a1|2026-08')?.balance).toBe('1000')
+  })
+
+  it('同月既有旧格式又有子账户快照时，以子账户聚合为准', () => {
+    const snapshots = [
+      makeSnap({ id: 'n0', account_id: 'a1', month: '2026-09', balance: '9999', currency: 'CNY' }),
+      makeSnap({ id: 'n1', account_id: 'a1', sub_account_id: 's1', month: '2026-09', balance: '100', currency: 'CNY' }),
+      makeSnap({ id: 'n2', account_id: 'a1', sub_account_id: 's2', month: '2026-09', balance: '200', currency: 'CNY' }),
+    ]
+    const map = buildSnapshotMap(snapshots)
+    expect(map.get('a1|2026-09')?.balance).toBe('300')
   })
 })

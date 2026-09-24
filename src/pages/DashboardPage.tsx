@@ -423,6 +423,7 @@ export default function DashboardPage() {
             onMonthClick={(m) => navigate(`/review/${m}`)}
             onMonthFill={(m) => navigate(`/entry/${m}`)}
             accounts={accounts}
+            subAccounts={subAccounts}
             snapshots={snapshots}
             rates={rates}
             base={base}
