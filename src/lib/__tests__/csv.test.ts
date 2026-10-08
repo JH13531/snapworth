@@ -175,12 +175,12 @@ describe('exportFullCsv 含子账户', () => {
     const csv = exportFullCsv([a1, a2], snaps, [], settings, subs)
     const lines = csv.split('\n')
     const header = lines[0].split(',')
-    const data = lines[2].split(',') // 行1为「归档状态」
+    const data = lines[1].split(',') // 金额表首行即数据（元数据已挪入「账户信息」区块）
     // 表头：月份, 招商银行 储蓄卡, 招商银行 信用卡, 支付宝, 资产合计, 负债合计, 净资产
     expect(header.slice(1, 4)).toEqual(['招商银行 储蓄卡', '招商银行 信用卡', '支付宝'])
-    expect(data[1]).toBe('10000.00')
-    expect(data[2]).toBe('-2000.00')
-    expect(data[3]).toBe('5000.00')
+    expect(data[1]).toBe('10000')
+    expect(data[2]).toBe('-2000')
+    expect(data[3]).toBe('5000')
     // 资产合计 15000，负债合计 2000，净资产 13000
     expect(data[4]).toBe('15000.00')
     expect(data[5]).toBe('2000.00')
@@ -193,6 +193,6 @@ describe('exportFullCsv 含子账户', () => {
     const csv = exportFullCsv([a1], snaps, [], settings)
     const header = csv.split('\n')[0].split(',')
     expect(header.slice(1, 2)).toEqual(['招商银行'])
-    expect(csv.split('\n')[2].split(',')[1]).toBe('8000.00')
+    expect(csv.split('\n')[1].split(',')[1]).toBe('8000')
   })
 })

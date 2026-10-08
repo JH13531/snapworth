@@ -262,6 +262,7 @@ const en = {
   'settings.import_backup': 'Import backup',
 
   'settings.export_csv': 'Export CSV',
+  'settings.export_xlsx': 'Export Excel (multi-sheet)',
 
   'settings.import_csv': 'Import CSV',
 
@@ -404,6 +405,7 @@ const en = {
   'account_edit.custom_category_placeholder': 'Enter custom category name',
 
   'account_edit.currency': 'Currency',
+  'account_edit.currency_hint': 'Changing the currency does not rewrite history: months already saved keep their original currency. To apply it to the current month, tap Done on the entry page again. To change a past month, re-save that month (the amount stays the same, only the currency changes).',
 
   'account_edit.icon': 'Icon',
 
@@ -508,6 +510,7 @@ const en = {
   'settings.auto_backup_desc': 'Auto-saves a copy after each monthly entry (max 5). Export backups to external storage regularly.',
   'settings.export_backup_subtitle': '.snapvault · password / recovery / key file',
   'settings.export_csv_desc': 'Analyze in Excel',
+  'settings.export_xlsx_desc': 'Separate sheets for amounts, accounts & rates',
   'settings.import_data': 'Import data',
   'settings.import_data_desc': 'Supports .snapvault, .csv, and .xlsx',
   'settings.clear_data': 'Clear all data',
@@ -596,6 +599,27 @@ const en = {
   'csv.yes': 'Yes',
   'csv.no': 'No',
   'csv.default_account': 'Default Account',
+  'csv.section_accounts': 'Account Info',
+  'csv.section_rates': 'Exchange Rates',
+  'csv.section_overrides': 'Currency Overrides',
+  'csv.sheet_amounts': 'Amounts',
+  'csv.col_name': 'Column',
+  'csv.rate_manual': 'Manual entry',
+  'csv.base_tag': 'base',
+  'csv.col_index': 'Col',
+  'csv.col_parent': 'Account',
+  'csv.col_sub': 'Sub-account',
+  'csv.col_currency': 'Currency',
+  'csv.col_type': 'Type',
+  'csv.col_category': 'Category',
+  'csv.col_in_networth': 'In Net Worth',
+  'csv.col_archived_month': 'Archived Month',
+  'csv.col_hidden': 'Hidden',
+  'csv.col_icon': 'Icon',
+  'csv.col_color': 'Color',
+  'csv.col_note': 'Note',
+  'csv.col_rate': 'Rate',
+  'csv.col_date': 'Date',
 
   // Wrap-up: a few extra rates-page keys
   'rates.all_same': 'All months identical',

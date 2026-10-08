@@ -1,12 +1,14 @@
-import type { Account, SubAccount, Snapshot, ExchangeRate, Settings } from '@/types'
+import type { Account, SubAccount, Snapshot, ExchangeRate, Settings, AccountType } from '@/types'
 import { categoryLabel, subAccountName } from '@/types'
 import { tl } from '@/lib/i18n-locale'
 import { inferAccountMeta } from '@/lib/presets'
+import { rateFor } from '@/lib/money'
+import Decimal from 'decimal.js'
 import Papa from 'papaparse'
 import type { ExportData } from '@/lib/crypto'
 import { downloadFile } from '@/lib/crypto'
 
-function esc(value: string | number | boolean | undefined): string {
+export function esc(value: string | number | boolean | undefined): string {
   if (value === undefined || value === null) return ''
   const s = String(value)
   if (s.includes(',') || s.includes('"') || s.includes('\n')) {
@@ -90,78 +92,190 @@ function buildBalanceIndex(snapshots: Snapshot[]): Map<string, Snapshot> {
   return map
 }
 
-function balanceOf(idx: Map<string, Snapshot>, col: CsvColumn, month: string): string {
+/** 取某列某月的原始快照（含币种信息，供合计折算与币种覆盖判断使用）。 */
+function snapOf(idx: Map<string, Snapshot>, col: CsvColumn, month: string): Snapshot | undefined {
   if (!col.sub) {
-    const snap = idx.get(`${col.account.id}|${month}|`) ?? idx.get(`${col.account.id}|${month}|${col.account.id}`)
-    return fmtBalance(snap)
+    return idx.get(`${col.account.id}|${month}|`) ?? idx.get(`${col.account.id}|${month}|${col.account.id}`)
   }
-  const snap = idx.get(`${col.account.id}|${month}|${col.sub.id}`)
+  return idx.get(`${col.account.id}|${month}|${col.sub.id}`)
     // 子账户建立之前的旧快照挂在账户上；只有唯一记账单元时才兜底，避免多子账户重复计入
     ?? (col.soleUnit ? idx.get(`${col.account.id}|${month}|`) : undefined)
-  return fmtBalance(snap)
 }
 
-function fmtBalance(snap: Snapshot | undefined): string {
-  if (!snap || snap.balance === '' || snap.balance == null) return ''
-  return parseFloat(snap.balance).toFixed(2)
+/** 导出内容的四个逻辑区块（二维数组，含各自表头，不含区块标记行）。CSV 与 xlsx 导出共用。 */
+export interface ExportSections {
+  amounts: string[][]
+  accountsInfo: string[][]
+  rates: { marker: string; rows: string[][] } | null
+  overrides: string[][] | null
+  /** 区块标记文本（xlsx 里作为各 sheet 的标题行/sheet 名） */
+  markers: { amounts: string; accounts: string; overrides: string }
 }
 
-export function exportFullCsv(
+/**
+ * 构建导出的全部区块数据：
+ *
+ *   1. 金额表：月份 × 账户/子账户列，给人看，保持纯净（只有数字，无元数据行）。
+ *      余额输出原始字符串，不做 toFixed，保证导出→导入不丢精度。
+ *      末尾三列合计按基准币种折算（缺汇率的列跳过，与应用内汇总口径一致）。
+ *   2. 「账户信息」区：每列的父账户/子账户/币种/类型/分类等元数据，
+ *      导入时据此精确重建账户结构（不猜名字）。
+ *   3. 「汇率(基准:X)」区：完整汇率表。基准币不同导致导入时基准不一致的，
+ *      导入方会按区间汇率换算。
+ *   4. 「币种覆盖」区（按需）：改过币种的列，历史快照币种与列币种不一致的
+ *      单元格逐一登记（月份 + 列号 → 币种）。
+ */
+export function buildExportSections(
   accounts: Account[],
   snapshots: Snapshot[],
-  _rates: ExchangeRate[],
-  _settings: Settings,
+  rates: ExchangeRate[],
+  settings: Settings,
   subAccounts: SubAccount[] = [],
-): string {
+): ExportSections {
   const columns = buildCsvColumns(accounts, subAccounts)
+  const base = settings.base_currency
+  const markers = {
+    amounts: tl('csv.sheet_amounts'),
+    accounts: tl('csv.section_accounts'),
+    overrides: tl('csv.section_overrides'),
+  }
 
   if (columns.length === 0) {
-    return [tl('csv.month'), tl('csv.total_assets'), tl('csv.total_liabilities'), tl('csv.net_worth')].join(',')
+    return {
+      amounts: [[tl('csv.month'), tl('csv.total_assets'), tl('csv.total_liabilities'), tl('csv.net_worth')]],
+      accountsInfo: [],
+      rates: null,
+      overrides: null,
+      markers,
+    }
   }
 
-  // Collect all unique months from snapshots
   const months = [...new Set(snapshots.map((s) => s.month))].sort()
-
-  const headers = columns.map((c) => c.header)
-  // 首行标注每一列的归档状态（归档后不再计入合计）
-  const archivedRow = [tl('csv.archived_status'), ...columns.map((c) => (c.sub ? c.sub.archived : c.account.archived) ? tl('csv.yes') : tl('csv.no')), '', '', '']
-
-  if (months.length === 0) {
-    const header = [tl('csv.month'), ...headers, tl('csv.total_assets'), tl('csv.total_liabilities'), tl('csv.net_worth')]
-    return [header, archivedRow].map((r) => r.map(esc).join(',')).join('\n')
-  }
-
-  const header = [tl('csv.month'), ...headers, tl('csv.total_assets'), tl('csv.total_liabilities'), tl('csv.net_worth')]
   const idx = buildBalanceIndex(snapshots)
+  const header = [tl('csv.month'), ...columns.map((c) => c.header), tl('csv.total_assets'), tl('csv.total_liabilities'), tl('csv.net_worth')]
 
   const dataRows = months.map((month) => {
-    const values = columns.map((c) => balanceOf(idx, c, month))
+    const values = columns.map((c) => {
+      const snap = snapOf(idx, c, month)
+      return snap && snap.balance !== '' && snap.balance != null ? snap.balance : ''
+    })
 
-    // 合计：每一列独立判断是否计入（归档月及之后不计入）
-    let totalAssets = 0
-    let totalLiabilities = 0
+    // 合计：每一列独立判断是否计入（归档月及之后不计入），按基准币种折算
+    let totalAssets = new Decimal(0)
+    let totalLiabilities = new Decimal(0)
     for (const c of columns) {
       const unit = c.sub ?? c.account
       if (unit.archived || !unit.include_in_networth) continue
       if (unit.archived_at && month >= unit.archived_at) continue
-      const raw = balanceOf(idx, c, month)
-      if (raw === '') continue
-      const balance = parseFloat(raw)
-      if (unit.type === 'asset') totalAssets += balance
-      else totalLiabilities += Math.abs(balance)
+      const snap = snapOf(idx, c, month)
+      if (!snap || snap.balance === '' || snap.balance == null) continue
+      const currency = snap.currency ?? unit.currency
+      const rate = rateFor(rates, currency, month, base)
+      if (!rate) continue
+      const converted = new Decimal(snap.balance).mul(rate)
+      if (unit.type === 'asset') totalAssets = totalAssets.add(converted)
+      else totalLiabilities = totalLiabilities.add(converted.abs())
     }
-    const netWorth = totalAssets - totalLiabilities
 
     return [
       month,
       ...values,
       totalAssets.toFixed(2),
       totalLiabilities.toFixed(2),
-      netWorth.toFixed(2),
+      totalAssets.sub(totalLiabilities).toFixed(2),
     ]
   })
 
-  return [header, archivedRow, ...dataRows].map((row) => row.map(esc).join(',')).join('\n')
+  const yes = tl('csv.yes')
+  const no = tl('csv.no')
+
+  // 区块 1：账户信息
+  const accountsInfo: string[][] = [[
+    tl('csv.col_index'), tl('csv.col_parent'), tl('csv.col_sub'), tl('csv.col_currency'),
+    tl('csv.col_type'), tl('csv.col_category'), tl('csv.col_in_networth'),
+    tl('csv.archived_status'), tl('csv.col_archived_month'), tl('csv.col_hidden'),
+    tl('csv.col_icon'), tl('csv.col_color'), tl('csv.col_note'),
+  ]]
+  columns.forEach((c, i) => {
+    const unit = c.sub ?? c.account
+    accountsInfo.push([
+      String(i + 1),
+      c.account.name,
+      c.sub?.name ?? '',
+      unit.currency,
+      unit.type,
+      unit.category,
+      unit.include_in_networth ? yes : no,
+      unit.archived ? yes : no,
+      unit.archived_at ?? '',
+      c.account.hidden ? yes : no,
+      c.sub?.icon ?? c.account.icon,
+      c.sub?.color ?? c.account.color,
+      c.sub?.note ?? c.account.note ?? '',
+    ])
+  })
+
+  // 区块 2：汇率（标注导出时的基准币种，导入方基准不同会换算）
+  // 「备注」列标明手动填写的汇率（无报价日期），避免用户看到空日期疑惑
+  let ratesSection: ExportSections['rates'] = null
+  if (rates.length > 0) {
+    const rows: string[][] = [[tl('csv.month'), tl('csv.col_currency'), tl('csv.col_rate'), tl('csv.col_date'), tl('csv.col_note')]]
+    const sorted = [...rates].sort((a, b) =>
+      a.month === b.month ? (a.currency < b.currency ? -1 : 1) : (a.month < b.month ? -1 : 1))
+    for (const r of sorted) {
+      rows.push([r.month, r.currency, r.rate_to_base, r.rate_date ?? '', r.rate_date ? '' : tl('csv.rate_manual')])
+    }
+    ratesSection = { marker: `${tl('csv.section_rates')}(${tl('csv.base_tag')}:${base})`, rows }
+  }
+
+  // 区块 3：币种覆盖（快照币种 ≠ 列币种的单元格，仅改过节币种的列会有）
+  // 用列名指认（如「招商银行 信用卡」），比列号更直观；导入端同时兼容旧文件的列号写法
+  let overridesSection: string[][] | null = null
+  const overrideRows: string[][] = []
+  columns.forEach((c) => {
+    const colCurrency = (c.sub ?? c.account).currency
+    for (const month of months) {
+      const snap = snapOf(idx, c, month)
+      if (snap?.currency && snap.currency !== colCurrency) {
+        overrideRows.push([month, c.header, snap.currency])
+      }
+    }
+  })
+  if (overrideRows.length > 0) {
+    overridesSection = [[tl('csv.month'), tl('csv.col_name'), tl('csv.col_currency')], ...overrideRows]
+  }
+
+  return { amounts: [header, ...dataRows], accountsInfo, rates: ratesSection, overrides: overridesSection, markers }
+}
+
+/**
+ * 导出完整 CSV（分区格式）：金额表 + 空行分隔的「账户信息 / 汇率 / 币种覆盖」区块。
+ *
+ * 旧格式（无区块、归档状态行在金额表内）的 CSV 导入时仍按猜测逻辑兼容。
+ */
+export function exportFullCsv(
+  accounts: Account[],
+  snapshots: Snapshot[],
+  rates: ExchangeRate[],
+  settings: Settings,
+  subAccounts: SubAccount[] = [],
+): string {
+  const s = buildExportSections(accounts, snapshots, rates, settings, subAccounts)
+  const lines: string[] = s.amounts.map((row) => row.map(esc).join(','))
+
+  if (s.accountsInfo.length > 0) {
+    lines.push('', s.markers.accounts)
+    for (const row of s.accountsInfo) lines.push(row.map(esc).join(','))
+  }
+  if (s.rates) {
+    lines.push('', s.rates.marker)
+    for (const row of s.rates.rows) lines.push(row.map(esc).join(','))
+  }
+  if (s.overrides) {
+    lines.push('', s.markers.overrides)
+    for (const row of s.overrides) lines.push(row.map(esc).join(','))
+  }
+  return lines.join('\n')
 }
 
 type CsvFormat = 'snapshot-wide' | 'snapshot-transposed' | 'transaction'
@@ -320,13 +434,312 @@ export function parseCsvWide(csvText: string, baseCurrency: string): ExportData 
   }
 }
 
+/** 把 CSV 的行切成「金额表 + 各区块」。旧格式没有区块标记，整份都是金额表。 */
+function splitSections(rows: string[][]): {
+  amountRows: string[][]
+  accounts?: string[][]
+  rates?: { marker: string; rows: string[][] }
+  overrides?: string[][]
+} {
+  const markers = [
+    { key: 'accounts', re: /^(账户信息|account info)$/i },
+    { key: 'rates', re: /^(汇率|exchange rates)/i },
+    { key: 'overrides', re: /^(币种覆盖|currency overrides)/i },
+  ] as const
+  const cuts: { idx: number; key: string; marker: string }[] = []
+  rows.forEach((r, idx) => {
+    const first = r[0]?.trim() ?? ''
+    for (const m of markers) {
+      if (m.re.test(first)) {
+        cuts.push({ idx, key: m.key, marker: first })
+        break
+      }
+    }
+  })
+  const amountRows = cuts.length ? rows.slice(0, cuts[0].idx) : rows
+  const section = (key: string) => {
+    const i = cuts.findIndex((c) => c.key === key)
+    if (i === -1) return undefined
+    const start = cuts[i].idx
+    const end = i + 1 < cuts.length ? cuts[i + 1].idx : rows.length
+    return { marker: cuts[i].marker, rows: rows.slice(start + 1, end) }
+  }
+  const accountsSec = section('accounts')
+  const ratesSec = section('rates')
+  const overridesSec = section('overrides')
+  return { amountRows, accounts: accountsSec?.rows, rates: ratesSec, overrides: overridesSec?.rows }
+}
+
+function parseBool(v: string | undefined): boolean | undefined {
+  const s = v?.trim().toLowerCase()
+  if (s === '是' || s === 'yes' || s === 'true') return true
+  if (s === '否' || s === 'no' || s === 'false') return false
+  return undefined
+}
+
+function parseType(v: string | undefined, fallback: AccountType): AccountType {
+  const s = v?.trim().toLowerCase()
+  if (s === 'asset' || s === '资产') return 'asset'
+  if (s === 'liability' || s === '负债') return 'liability'
+  return fallback
+}
+
+/** 解析汇率区块。标记行里带导出方基准币种（如「汇率(基准:CNY)」），与导入方基准不同时按区间汇率换算。 */
+function parseRatesSection(marker: string, rows: string[][], importBase: string): ExchangeRate[] {
+  const m = marker.match(/[:：]\s*([A-Za-z]{3})\s*[)）]/)
+  const csvBase = m ? m[1].toUpperCase() : importBase
+
+  const raw: { month: string; currency: string; rate: Decimal; rate_date?: string }[] = []
+  for (const r of rows) {
+    const month = normalizeMonth(r[0]?.trim())
+    const currency = r[1]?.trim().toUpperCase()
+    const rateStr = r[2]?.trim()
+    if (!month || !currency || !rateStr) continue
+    let rate: Decimal
+    try { rate = new Decimal(rateStr) } catch { continue }
+    raw.push({ month, currency, rate, rate_date: r[3]?.trim() || undefined })
+  }
+
+  const now = new Date().toISOString()
+  const make = (month: string, currency: string, rateToBase: string, rate_date?: string): ExchangeRate => ({
+    month, currency, rate_to_base: rateToBase, rate_date, created_at: now, updated_at: now,
+  })
+
+  if (csvBase === importBase) {
+    return raw.map((r) => make(r.month, r.currency, r.rate.toString(), r.rate_date))
+  }
+
+  // 基准不同：new(C) = old(C) / old(导入方基准)；旧基准自身的汇率隐含为 1。
+  // 某月缺少换算锚点（导入方基准在旧表里的汇率）时，该月记录跳过。
+  const byMonthCur = new Map(raw.map((r) => [`${r.month}|${r.currency}`, r]))
+  const oldRateOf = (month: string, cur: string): Decimal | null => {
+    if (cur === csvBase) return new Decimal(1)
+    return byMonthCur.get(`${month}|${cur}`)?.rate ?? null
+  }
+  const convert = (rate: Decimal, anchor: Decimal) =>
+    rate.div(anchor).toFixed(10).replace(/0+$/, '').replace(/\.$/, '')
+  const result: ExchangeRate[] = []
+  for (const r of raw) {
+    if (r.currency === importBase) continue // 新基准隐含为 1，无需记录
+    const anchor = oldRateOf(r.month, importBase)
+    if (!anchor || anchor.isZero()) continue
+    result.push(make(r.month, r.currency, convert(r.rate, anchor), r.rate_date))
+  }
+  // 旧基准自身也要补发一行（old=1 → new=1/anchor），否则以旧基准计价的资产在新基准下无汇率可折算
+  const emitted = new Set(result.map((r) => `${r.month}|${r.currency}`))
+  for (const month of [...new Set(raw.map((r) => r.month))]) {
+    if (emitted.has(`${month}|${csvBase}`)) continue
+    const anchorRec = byMonthCur.get(`${month}|${importBase}`)
+    if (!anchorRec || anchorRec.rate.isZero()) continue
+    result.push(make(month, csvBase, convert(new Decimal(1), anchorRec.rate), anchorRec.rate_date))
+  }
+  return result
+}
+
+/** 解析币种覆盖区块的原始行。ref 可能是列名（新格式）或列号（旧格式，从 1 计）。 */
+function parseOverridesSection(rows: string[][]): { month: string; ref: string; currency: string }[] {
+  const list: { month: string; ref: string; currency: string }[] = []
+  for (const r of rows) {
+    const month = normalizeMonth(r[0]?.trim())
+    const ref = r[1]?.trim()
+    const currency = r[2]?.trim().toUpperCase()
+    if (month && ref && currency) list.push({ month, ref, currency })
+  }
+  return list
+}
+
+interface ColumnMeta {
+  parent: string
+  sub: string
+  currency: string
+  type: AccountType
+  category: string
+  include: boolean
+  archived: boolean
+  archivedAt?: string
+  hidden: boolean
+  icon: string
+  color: string
+  note: string
+}
+
+/**
+ * 带「账户信息」区块的结构化重建：每列 = 一个子账户，按父账户名归组出账户。
+ * 账户的属性（类型/分类/币种/图标/颜色/备注）取该组第一列，与应用内
+ * 「账户属性同步首个子账户」的口径一致。
+ */
+function buildExportDataWithMeta(
+  accountColumns: { name: string; index: number; archived: boolean }[],
+  dataRows: string[][],
+  accountsSection: string[][],
+  overridesSection: string[][],
+  rates: ExchangeRate[],
+  baseCurrency: string,
+): ExportData {
+  const now = new Date().toISOString()
+
+  // 列号（从 1 计）→ 元数据
+  const metaByOrdinal = new Map<number, ColumnMeta>()
+  for (const r of accountsSection) {
+    const ordinal = parseInt(r[0]?.trim() ?? '', 10)
+    if (isNaN(ordinal)) continue // 跳过区块表头等非数据行
+    const parent = r[1]?.trim() ?? ''
+    if (!parent) continue
+    const inferred = inferAccountMeta(parent)
+    metaByOrdinal.set(ordinal, {
+      parent,
+      sub: r[2]?.trim() ?? '',
+      currency: r[3]?.trim().toUpperCase() || baseCurrency,
+      type: parseType(r[4], inferred.type),
+      category: r[5]?.trim() || inferred.category,
+      include: parseBool(r[6]) ?? true,
+      archived: parseBool(r[7]) ?? false,
+      archivedAt: normalizeMonth(r[8]?.trim()) || undefined,
+      hidden: parseBool(r[9]) ?? false,
+      icon: r[10]?.trim() || inferred.icon,
+      color: r[11]?.trim() || inferred.color,
+      note: r[12] ?? '',
+    })
+  }
+
+  // 币种覆盖：新格式按列名解析成列号，旧格式（纯数字列号）原样兼容
+  const ordinalByName = new Map(accountColumns.map((c, i) => [c.name, i + 1]))
+  const overrides = new Map<string, string>()
+  for (const o of parseOverridesSection(overridesSection)) {
+    const ordinal = /^\d+$/.test(o.ref) ? parseInt(o.ref, 10) : ordinalByName.get(o.ref)
+    if (ordinal !== undefined) overrides.set(`${o.month}|${ordinal}`, o.currency)
+  }
+
+  // 兜底：某列缺元数据时退回按名字猜测（容忍手工删减过的文件）
+  const metaOf = (ordinal: number, col: { name: string; archived: boolean }): ColumnMeta => {
+    const hit = metaByOrdinal.get(ordinal)
+    if (hit) return hit
+    const inferred = inferAccountMeta(col.name)
+    return {
+      parent: col.name, sub: '', currency: baseCurrency,
+      type: inferred.type, category: inferred.category,
+      include: true, archived: col.archived, hidden: false,
+      icon: inferred.icon, color: inferred.color, note: '',
+    }
+  }
+
+  const accounts: Account[] = []
+  const accountByParent = new Map<string, Account>()
+  const subCountByAccount = new Map<string, number>()
+  const subByOrdinal = new Map<number, SubAccount>()
+  const metaByOrdinalResolved = new Map<number, ColumnMeta>()
+
+  accountColumns.forEach((col, i) => {
+    const ordinal = i + 1
+    const meta = metaOf(ordinal, col)
+    metaByOrdinalResolved.set(ordinal, meta)
+
+    let account = accountByParent.get(meta.parent)
+    if (!account) {
+      account = {
+        id: crypto.randomUUID(),
+        name: meta.parent,
+        icon: meta.icon,
+        color: meta.color,
+        type: meta.type,
+        category: meta.category,
+        currency: meta.currency,
+        include_in_networth: meta.include,
+        archived: meta.archived,
+        archived_at: meta.archivedAt,
+        hidden: meta.hidden,
+        sort_order: accounts.length,
+        note: meta.note || undefined,
+        created_at: now,
+        updated_at: now,
+      }
+      accountByParent.set(meta.parent, account)
+      accounts.push(account)
+    }
+
+    const sortIdx = subCountByAccount.get(account.id) ?? 0
+    subCountByAccount.set(account.id, sortIdx + 1)
+    subByOrdinal.set(ordinal, {
+      id: crypto.randomUUID(),
+      account_id: account.id,
+      name: meta.sub,
+      type: meta.type,
+      category: meta.category,
+      currency: meta.currency,
+      include_in_networth: meta.include,
+      archived: meta.archived,
+      archived_at: meta.archivedAt,
+      sort_order: sortIdx,
+      icon: meta.icon || undefined,
+      color: meta.color || undefined,
+      note: meta.note || undefined,
+      created_at: now,
+      updated_at: now,
+    })
+  })
+
+  const snapshots: Snapshot[] = []
+  for (const row of dataRows) {
+    if (!row || row.length === 0) continue
+    const month = normalizeMonth(row[0]?.trim())
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) continue
+
+    for (let i = 0; i < accountColumns.length; i++) {
+      const ordinal = i + 1
+      const valueStr = row[accountColumns[i].index]?.trim()
+      if (valueStr === undefined || valueStr === '') continue
+      // 去千分位逗号，否则 "55,000" 会被 parseFloat 截断成 55
+      const value = parseFloat(valueStr.replace(/,/g, ''))
+      if (isNaN(value)) continue
+
+      const sub = subByOrdinal.get(ordinal)!
+      const meta = metaByOrdinalResolved.get(ordinal)!
+      snapshots.push({
+        id: crypto.randomUUID(),
+        account_id: sub.account_id,
+        sub_account_id: sub.id,
+        month,
+        balance: value.toString(),
+        currency: overrides.get(`${month}|${ordinal}`) ?? meta.currency,
+        created_at: now,
+        updated_at: now,
+      })
+    }
+  }
+
+  return {
+    schema_version: 1,
+    settings: {
+      id: 'singleton',
+      base_currency: baseCurrency,
+      theme: 'system',
+      privacy_mode: false,
+      invert_change_color: false,
+      book_name: 'Imported',
+      schema_version: 1,
+      onboarded: true,
+      updated_at: now,
+    },
+    accounts,
+    sub_accounts: [...subByOrdinal.values()],
+    snapshots,
+    exchange_rates: rates,
+    monthly_reviews: [],
+    tombstones: [],
+  }
+}
+
 function parseSnapshotWide(header: string[], rows: string[][], baseCurrency: string): ExportData {
   if (header.length < 4) {
     throw new Error('CSV 格式错误：列数不足')
   }
 
-  // 找归档状态行
-  const archivedRow = rows.find((r) => r[0]?.trim() === '归档状态' || r[0]?.toLowerCase().trim() === 'archived')
+  // 切出各区块，避免区块里的数据行（如汇率行的 2025-01 开头）混进金额表
+  const sections = splitSections(rows)
+  const amountRows = sections.amountRows
+
+  // 找归档状态行（旧格式：在金额表内；新格式已挪入「账户信息」区块）
+  const archivedRow = amountRows.find((r) => r[0]?.trim() === '归档状态' || r[0]?.toLowerCase().trim() === 'archived')
 
   // Identify account columns (skip first column which is the date/month column)
   // Also skip trailing summary columns (资产合计, 负债合计, 净资产)
@@ -350,7 +763,7 @@ function parseSnapshotWide(header: string[], rows: string[][], baseCurrency: str
   }
 
   // 过滤掉归档状态等元数据行，只保留实际数据行
-  const dataRows = rows.slice(1).filter((r) => {
+  const dataRows = amountRows.slice(1).filter((r) => {
     const firstCol = r[0]?.trim()
     if (!firstCol) return false
     if (firstCol === '归档状态') return false
@@ -358,6 +771,19 @@ function parseSnapshotWide(header: string[], rows: string[][], baseCurrency: str
     return true
   })
 
+  // 汇率区块（新格式才有）
+  const rates = sections.rates
+    ? parseRatesSection(sections.rates.marker, sections.rates.rows, baseCurrency)
+    : []
+
+  // 新格式：有「账户信息」区块，按元数据精确重建账户/子账户结构
+  if (sections.accounts) {
+    return buildExportDataWithMeta(
+      accountColumns, dataRows, sections.accounts, sections.overrides ?? [], rates, baseCurrency,
+    )
+  }
+
+  // 旧格式：按账户名猜测类型/分类
   const exportData = buildExportData(accountColumns, dataRows, baseCurrency, (row) => normalizeMonth(row[0]?.trim()))
 
   // 应用归档状态
@@ -366,6 +792,7 @@ function parseSnapshotWide(header: string[], rows: string[][], baseCurrency: str
       exportData.accounts[i].archived = true
     }
   })
+  exportData.exchange_rates = rates
 
   return exportData
 }

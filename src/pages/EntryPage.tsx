@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, ChevronDown, Copy, Check, X, Download, Loader2, SkipForward,  } from 'lucide-react'
-import { useAccountsWithReady, useSnapshots, useExchangeRates, useSubAccountsWithReady } from '@/hooks/useData'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { useAccountsWithReady, useExchangeRates, useSubAccountsWithReady } from '@/hooks/useData'
 import { useSettingsStore } from '@/store/settings'
 import { db, uuid } from '@/db'
 import { type Account, type SubAccount, subAccountName, subAccountIcon, subAccountColor } from '@/types'
@@ -43,7 +44,11 @@ export default function EntryPage() {
   const month = routeMonth ?? currentMonth()
   const { accounts, ready: accountsReady } = useAccountsWithReady()
   const { subAccounts, ready: subAccountsReady } = useSubAccountsWithReady()
-  const snapshots = useSnapshots()
+  // 需要区分「查询还没返回」和「确实没有快照」：初始空数组不代表库为空，
+  // 草稿恢复必须等首次查询完成，否则会与草稿保存产生竞态（详见下方两个 effect）
+  const snapshotsLive = useLiveQuery(() => db.snapshots.toArray(), [])
+  const snapshots = useMemo(() => snapshotsLive ?? [], [snapshotsLive])
+  const snapshotsReady = snapshotsLive !== undefined
   const rates = useExchangeRates()
   const { settings } = useSettingsStore()
   const base = settings?.base_currency ?? 'CNY'
@@ -75,11 +80,10 @@ export default function EntryPage() {
       loadedMonthRef.current = month
       hasLoadedSnapshotsRef.current = false
     }
-    if (accounts.length === 0) return
     if (hasLoadedSnapshotsRef.current) return
-    // 快照数据还在加载中（live query 初始默认空数组），等有数据了再同步
-    const monthSnaps = snapshots.filter((s) => s.month === month)
-    if (monthSnaps.length === 0 && snapshots.length === 0) return
+    // 等快照查询首次返回（返回空数组也是有效结果）。载入的 map 只依赖快照与草稿，
+    // 不依赖 accounts，所以无需等 accounts 就绪。
+    if (!snapshotsReady) return
     hasLoadedSnapshotsRef.current = true
 
     const map: Record<string, string> = {}
@@ -100,10 +104,13 @@ export default function EntryPage() {
       }
     } catch { /* ignore */ }
     setBalances(map)
-  }, [month, snapshots, accounts])
+  }, [month, snapshots, snapshotsReady])
 
   // 草稿自动保存到 localStorage
   useEffect(() => {
+    // 初始载入完成前绝不写 localStorage：挂载时 balances 还是空的，
+    // 先跑这个 effect 会把已存草稿误删，导致切页再回来草稿丢失
+    if (!hasLoadedSnapshotsRef.current) return
     try {
       const hasAny = Object.values(balances).some((v) => v !== '' && v !== undefined)
       if (hasAny) {
@@ -339,7 +346,9 @@ export default function EntryPage() {
           if (existing) {
             await db.snapshots.update(existing.id, {
               balance: draft,
-              ...(existing.currency ? {} : { currency: acc.currency }),
+              // 币种始终跟随子账户当前币种：修改币种后重新保存该月即按新币种折算；
+              // 不重新保存的历史月份保持原冻结币种，不受影响
+              currency: acc.currency,
               recorded_at: now,
               updated_at: now,
             })

@@ -272,6 +272,10 @@ function SortableSubAccountCard({
                 <option key={c.code} value={c.code}>{c.code} - {currencyName(c)}</option>
               ))}
             </select>
+            {/* 已有子账户才有历史数据，才需要解释改币种的影响范围 */}
+            {!sa.isNew && (
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">{t('account_edit.currency_hint')}</p>
+            )}
           </div>
 
           <label className="flex items-center gap-2">

@@ -26,7 +26,7 @@ import { takePendingImportFile } from '@/lib/import-handoff'
 import { currentMonth } from '@/lib/date'
 import Decimal from 'decimal.js'
 import { Icon } from '@/components/Icon'
-import type { Theme, Account, Snapshot, AccountType } from '@/types'
+import type { Theme, Account, Snapshot, SubAccount, AccountType } from '@/types'
 import { CATEGORIES, categoryLabel } from '@/types'
 
 const IMPORT_ICONS = ['wallet', 'piggy-bank', 'trending-up', 'gem', 'building', 'shield',
@@ -117,6 +117,7 @@ type ExportState = {
   blob: VaultBlob | null
   filename: string
   acknowledged: boolean
+  downloaded: boolean
   copiedRecovery: boolean
   copiedKeyFile: boolean
 }
@@ -275,6 +276,7 @@ export default function SettingsPage() {
         recoveryCode: '', keyFile: null, blob: null,
         filename: `snapworth-${currentMonth()}.snapvault`,
         acknowledged: false,
+        downloaded: false,
         copiedRecovery: false, copiedKeyFile: false,
       })
       setSearchParams({}, { replace: true })
@@ -387,6 +389,7 @@ export default function SettingsPage() {
       recoveryCode: '', keyFile: null, blob: null,
       filename: `snapworth-${currentMonth()}.snapvault`,
       acknowledged: false,
+      downloaded: false,
       copiedRecovery: false, copiedKeyFile: false,
     })
   }
@@ -445,6 +448,11 @@ export default function SettingsPage() {
     downloadFile(`snapworth-${currentMonth()}.csv`, csv, 'text/csv')
   }
 
+  async function exportXlsx() {
+    const { downloadFullXlsx } = await import('@/lib/xlsx')
+    await downloadFullXlsx(accounts, snapshots, rates, cfg, subAccounts, `snapworth-${currentMonth()}.xlsx`)
+  }
+
   /** 解析成功后弹出导入模式选择 */
   function promptImportMode(importData: ExportData) {
     setImportMsg('')
@@ -499,12 +507,20 @@ export default function SettingsPage() {
       let text: string
 
       if (isExcel) {
-        // Read Excel file and convert first sheet to CSV
+        // Read Excel file and convert to CSV text.
+        // 本应用导出的多工作表格式（金额/账户信息/汇率/币种覆盖）先还原成分区 CSV 文本，
+        // 保证子账户、币种、汇率不丢失；其它单表 xlsx 仍按第一个 sheet 转换。
         const buffer = await file.arrayBuffer()
         const XLSX = await import('xlsx')
         const workbook = XLSX.read(buffer, { type: 'array' })
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-        text = XLSX.utils.sheet_to_csv(firstSheet)
+        const { workbookToCsvText } = await import('@/lib/xlsx')
+        const sectioned = workbookToCsvText(XLSX, workbook)
+        if (sectioned) {
+          text = sectioned
+        } else {
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+          text = XLSX.utils.sheet_to_csv(firstSheet)
+        }
       } else {
         text = await file.text()
       }
@@ -546,12 +562,20 @@ export default function SettingsPage() {
           return { ...snap, account_id: matchedAccount?.id ?? snap.account_id }
         })
 
+        // 子账户同样按名称重映射到已存在的父账户 id，保证名称/币种等元数据不丢失
+        const matchedSubAccounts = csvData.sub_accounts?.map((sub: SubAccount) => {
+          const csvAccount = csvData.accounts.find((a: Account) => a.id === sub.account_id)
+          const matchedAccount = matchedAccounts.find((a: Account) => a.name === csvAccount?.name)
+          return { ...sub, account_id: matchedAccount?.id ?? sub.account_id }
+        })
+
         const sourceData: ExportData = {
           schema_version: cfg.schema_version,
           settings: cfg,
           accounts: matchedAccounts,
+          sub_accounts: matchedSubAccounts,
           snapshots: matchedSnapshots,
-          exchange_rates: [],
+          exchange_rates: csvData.exchange_rates,
           monthly_reviews: [],
           tombstones: [],
         }
@@ -903,6 +927,16 @@ export default function SettingsPage() {
             </div>
             <ChevronRight size={18} className="text-slate-400" />
           </button>
+          <button onClick={exportXlsx} className="w-full p-4 flex items-center gap-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50">
+            <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-900 flex items-center justify-center shrink-0">
+              <FileSpreadsheet size={18} className="text-purple-600" />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium">{t('settings.export_xlsx')}</div>
+              <div className="text-xs text-slate-500">{t('settings.export_xlsx_desc')}</div>
+            </div>
+            <ChevronRight size={18} className="text-slate-400" />
+          </button>
           <button onClick={exportCsv} className="w-full p-4 flex items-center gap-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50">
             <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-900 flex items-center justify-center shrink-0">
               <FileSpreadsheet size={18} className="text-purple-600" />
@@ -1105,9 +1139,6 @@ export default function SettingsPage() {
                   <p className="text-xs text-slate-500 mt-1.5">{t('backup.key_hint')}</p>
                 </div>
 
-                <button onClick={downloadExport} className="btn-primary w-full py-3 mb-3">
-                  <Download size={18} /> {t('backup.download_vault')}
-                </button>
                 <label className="flex items-start gap-2 text-xs text-slate-500 mb-3 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1117,12 +1148,22 @@ export default function SettingsPage() {
                   />
                   <span>{t('backup.acknowledge')}</span>
                 </label>
+                {/* 下载与完成合并为一个按钮：先强制下载备份文件，点击后按钮变为「完成」，
+                    避免用户误以为不下载直接点「完成」就算备份好了 */}
                 <button
-                  onClick={() => setExportState(null)}
+                  onClick={() => {
+                    if (!exportState.downloaded) {
+                      downloadExport()
+                      setExportState({ ...exportState, downloaded: true })
+                    } else {
+                      setExportState(null)
+                    }
+                  }}
                   disabled={!exportState.acknowledged}
-                  className="btn-secondary w-full py-2.5"
+                  className="btn-primary w-full py-3"
                 >
-                  {t('backup.done')}
+                  {exportState.downloaded ? <Check size={18} /> : <Download size={18} />}
+                  {exportState.downloaded ? t('backup.done') : t('backup.download_vault')}
                 </button>
               </>
             )}

@@ -262,6 +262,7 @@ const zh = {
   'settings.import_backup': '导入备份',
 
   'settings.export_csv': '导出 CSV',
+  'settings.export_xlsx': '导出 Excel（多工作表）',
 
   'settings.import_csv': '导入 CSV',
 
@@ -404,6 +405,7 @@ const zh = {
   'account_edit.custom_category_placeholder': '输入自定义分类名称',
 
   'account_edit.currency': '币种',
+  'account_edit.currency_hint': '改币种不会改动历史数据：已保存的月份仍按原币种折算。想让当月生效，到记账页重新点一次「完成」即可；历史月份如需变更币种，进入该月重新保存（金额不变，仅币种变化）。',
 
   'account_edit.icon': '图标',
 
@@ -510,6 +512,7 @@ const zh = {
   'settings.auto_backup': '自动备份',
   'settings.export_backup_subtitle': '.snapvault · 密码 / 恢复码 / 密钥文件',
   'settings.export_csv_desc': '可在 Excel 中分析',
+  'settings.export_xlsx_desc': '金额 / 账户 / 汇率 各自独立工作表，推荐',
   'settings.import_data': '导入数据',
   'settings.import_data_desc': '支持 .snapvault、.csv 和 .xlsx',
   'settings.clear_data': '清除全部数据',
@@ -596,6 +599,27 @@ const zh = {
   'csv.yes': '是',
   'csv.no': '否',
   'csv.default_account': '默认账户',
+  'csv.section_accounts': '账户信息',
+  'csv.section_rates': '汇率',
+  'csv.section_overrides': '币种覆盖',
+  'csv.sheet_amounts': '金额',
+  'csv.col_name': '列名',
+  'csv.rate_manual': '手动填写',
+  'csv.base_tag': '基准',
+  'csv.col_index': '列',
+  'csv.col_parent': '父账户',
+  'csv.col_sub': '子账户',
+  'csv.col_currency': '币种',
+  'csv.col_type': '类型',
+  'csv.col_category': '分类',
+  'csv.col_in_networth': '计入净资产',
+  'csv.col_archived_month': '归档月份',
+  'csv.col_hidden': '隐藏',
+  'csv.col_icon': '图标',
+  'csv.col_color': '颜色',
+  'csv.col_note': '备注',
+  'csv.col_rate': '汇率',
+  'csv.col_date': '日期',
 
   // 收尾：汇率页少量补充
   'rates.all_same': '所有月份相同',
