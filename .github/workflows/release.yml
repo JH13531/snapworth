@@ -2,6 +2,9 @@ name: Release
 
 # 打 tag 时自动构建并发布安装包：
 #   git tag v0.1.1 && git push origin v0.1.1
+#
+# 各 action 均固定在使用 Node 24 运行时的版本（checkout/setup-node v7、
+# action-gh-release v3）；回退到 v4/v2 会重新触发 Node 20 弃用告警。
 on:
   push:
     tags: ['v*']
@@ -13,8 +16,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -35,7 +38,7 @@ jobs:
           cd release
           zip -r "snapworth-${GITHUB_REF_NAME}.zip" snapworth
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release/snapworth-*.zip
           generate_release_notes: true
