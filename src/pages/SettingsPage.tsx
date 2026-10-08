@@ -992,7 +992,7 @@ export default function SettingsPage() {
         <div className="card p-4 flex items-start gap-3">
           <Info size={18} className="text-slate-400 shrink-0 mt-0.5" />
           <div className="text-xs text-slate-500 leading-relaxed">
-            {t('settings.about_line1')}<br />
+            {t('settings.about_line1', { version: __APP_VERSION__ })}<br />
             {t('settings.about_line2', { action: t('settings.export_backup') })}<br />
             {t('settings.about_line3')}
           </div>

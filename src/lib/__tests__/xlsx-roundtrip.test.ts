@@ -3,7 +3,8 @@ import { describe, it, expect } from 'vitest'
 import * as XLSX from 'xlsx'
 import { exportFullCsv, parseCsvWide } from '../csv'
 import { buildXlsxWorkbook, workbookToCsvText } from '../xlsx'
-import type { Account, SubAccount, Snapshot, ExchangeRate, Settings, ExportData } from '@/types'
+import type { Account, SubAccount, Snapshot, ExchangeRate, Settings } from '@/types'
+import type { ExportData } from '@/lib/crypto'
 
 /**
  * xlsx 多工作表导出 → 导入 的往返一致性：

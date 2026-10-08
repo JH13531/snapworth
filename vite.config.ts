@@ -1,7 +1,11 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { readFileSync } from 'fs'
 import path from 'path'
+
+/** 版本号单一来源：package.json，构建时注入为 __APP_VERSION__，避免 UI 里的版本号写死后过期 */
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, './package.json'), 'utf-8')) as { version: string }
 
 /**
  * 开发模式下移除 index.html 中的 CSP meta 标签——Vite 的 React Refresh
@@ -24,6 +28,9 @@ function stripCspInDev(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   server: {
     port: 5174,
     strictPort: true,

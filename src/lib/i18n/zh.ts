@@ -804,7 +804,7 @@ const zh = {
   'settings.goal_unset_placeholder': '未设定',
 
   // Settings - footer
-  'settings.about_line1': 'Snapworth 资产复盘 v0.1.0 · 数据完全存储在本设备浏览器中。',
+  'settings.about_line1': 'Snapworth 资产复盘 v{version} · 数据完全存储在本设备浏览器中。',
   'settings.about_line2': 'PWA 存储可能被系统清理（尤其 iOS），请定期{action}。',
   'settings.about_line3': '本项目开源，不上传任何数据。',
 

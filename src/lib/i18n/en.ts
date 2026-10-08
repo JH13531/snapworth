@@ -804,7 +804,7 @@ const en = {
   'settings.goal_unset_placeholder': 'Not set',
 
   // Settings - footer
-  'settings.about_line1': 'Snapworth v0.1.0 · All data is stored locally in this browser.',
+  'settings.about_line1': 'Snapworth v{version} · All data is stored locally in this browser.',
   'settings.about_line2': 'PWA storage may be cleared by the system (especially on iOS) - {action} regularly.',
   'settings.about_line3': 'Open source; nothing is ever uploaded.',
 
