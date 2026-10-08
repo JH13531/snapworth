@@ -33,7 +33,9 @@ jobs:
       # GitHub Pages 对未知路径返回 404；复制一份 index.html 作为 404.html，
       # 浏览器地址不变，SPA 启动后由前端路由接管（/analytics 等深链可直达）
       - run: cp dist/index.html dist/404.html
-      - uses: actions/upload-pages-artifact@v4
+      # v5 把内部依赖的 upload-artifact 升到 v7（Node 24）；
+      # v4 钉的是 upload-artifact v4.6.2（Node 20），会残留弃用告警
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
