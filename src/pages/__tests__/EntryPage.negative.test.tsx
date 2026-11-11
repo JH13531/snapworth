@@ -68,7 +68,9 @@ function renderEntry(month = '2026-09') {
 describe('EntryPage 负数输入', () => {
   it('输入负号（不完整数字）不应白屏崩溃', async () => {
     renderEntry()
-    const input = await waitFor(() => screen.getByPlaceholderText('0.00')) as HTMLInputElement
+    // 先等快照回填完成（基线出现），否则初始化 effect 会在输入后把 balances 覆盖掉
+    await waitFor(() => expect(screen.getAllByText(/上月/).length).toBeGreaterThan(0))
+    const input = screen.getByPlaceholderText('0.00') as HTMLInputElement
     // 输入负数时的第一个按键是 "-"
     fireEvent.change(input, { target: { value: '-' } })
     // 页面仍存活：输入框还在，值是 "-"
@@ -78,7 +80,8 @@ describe('EntryPage 负数输入', () => {
 
   it('完整负数能正常显示并参与 diff 计算', async () => {
     renderEntry()
-    const input = await waitFor(() => screen.getByPlaceholderText('0.00'))
+    await waitFor(() => expect(screen.getAllByText(/上月/).length).toBeGreaterThan(0))
+    const input = screen.getByPlaceholderText('0.00')
     fireEvent.change(input, { target: { value: '-' } })
     fireEvent.change(input, { target: { value: '-500' } })
     await waitFor(() => expect(screen.getByText(/-1500\.00/)).toBeTruthy())

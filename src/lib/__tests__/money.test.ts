@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeMonth, rateFor, pctChange, formatMoney, snapCurrency, nearestPriorMonth, latestSnapshotByAccount, summarizeAccountMonth, buildSnapshotMap } from '../money'
+import { summarizeMonth, rateFor, pctChange, formatMoney, snapCurrency, nearestPriorMonth, latestSnapshotByAccount, summarizeAccountMonth, buildSnapshotMap, summarizeMonthByCategory, summarizeMonthByCategoryAndAccount, accountNetChanges } from '../money'
 import type { Account, Snapshot, ExchangeRate, SubAccount } from '@/types'
 import Decimal from 'decimal.js'
 
@@ -173,6 +173,9 @@ describe('formatMoney', () => {
   it('formats with currency symbol', () => {
     expect(formatMoney('1000', 'CNY')).toBe('¥1,000.00')
   })
+  it('负数把负号放在货币符号之前', () => {
+    expect(formatMoney('-3000', 'CNY')).toBe('-¥3,000.00')
+  })
 })
 
 describe('summarizeAccountMonth', () => {
@@ -249,5 +252,97 @@ describe('buildSnapshotMap 主账户键聚合', () => {
     ]
     const map = buildSnapshotMap(snapshots)
     expect(map.get('a1|2026-09')?.balance).toBe('300')
+  })
+})
+
+describe('summarizeMonthByCategoryAndAccount', () => {
+  const subs: SubAccount[] = [
+    { id: 's1', account_id: 'a1', name: '活期', type: 'asset', category: 'cash', currency: 'CNY', include_in_networth: true, archived: false, sort_order: 0, created_at: '', updated_at: '' },
+    { id: 's2', account_id: 'a2', name: '美股', type: 'asset', category: 'investment', currency: 'USD', include_in_networth: true, archived: false, sort_order: 0, created_at: '', updated_at: '' },
+    // 同一分类下的第二个账户，用于验证按账户拆分
+    { id: 's3', account_id: 'a3', name: '基金', type: 'asset', category: 'investment', currency: 'CNY', include_in_networth: true, archived: false, sort_order: 0, created_at: '', updated_at: '' },
+    { id: 's4', account_id: 'a4', name: '信用卡', type: 'liability', category: 'credit_card', currency: 'CNY', include_in_networth: true, archived: false, sort_order: 0, created_at: '', updated_at: '' },
+  ]
+  const accounts = [
+    makeAccount({ id: 'a1' }),
+    makeAccount({ id: 'a2', currency: 'USD', category: 'investment' }),
+    makeAccount({ id: 'a3', category: 'investment' }),
+    makeAccount({ id: 'a4', type: 'liability', category: 'credit_card' }),
+  ]
+  const rates: ExchangeRate[] = [{
+    month: '2026-08', currency: 'USD', rate_to_base: '7',
+    created_at: '', updated_at: '',
+  }]
+  const snapshots = [
+    makeSnap({ id: 'n1', account_id: 'a1', sub_account_id: 's1', month: '2026-08', balance: '1000', currency: 'CNY' }),
+    makeSnap({ id: 'n2', account_id: 'a2', sub_account_id: 's2', month: '2026-08', balance: '100', currency: 'USD' }),
+    makeSnap({ id: 'n3', account_id: 'a3', sub_account_id: 's3', month: '2026-08', balance: '200', currency: 'CNY' }),
+    makeSnap({ id: 'n4', account_id: 'a4', sub_account_id: 's4', month: '2026-08', balance: '500', currency: 'CNY' }),
+  ]
+
+  it('账户级明细之和等于分类级汇总（同一口径，可加总核对）', () => {
+    const nested = summarizeMonthByCategoryAndAccount(accounts, snapshots, rates, '2026-08', 'CNY', 'asset', subs)
+    const flat = summarizeMonthByCategory(accounts, snapshots, rates, '2026-08', 'CNY', 'asset', subs)
+
+    expect([...flat.keys()].sort()).toEqual([...nested.keys()].sort())
+    for (const [cat, byAccount] of nested) {
+      let sum = new Decimal(0)
+      for (const v of byAccount.values()) sum = sum.add(v)
+      expect(sum.toNumber()).toBe(flat.get(cat)!.toNumber())
+    }
+    // 外币按当月汇率折算，人民币账户原样
+    expect(nested.get('investment')?.get('a2')?.toNumber()).toBe(700)
+    expect(nested.get('investment')?.get('a3')?.toNumber()).toBe(200)
+  })
+
+  it('分类合计相减等于净资产变化', () => {
+    const assetNested = summarizeMonthByCategoryAndAccount(accounts, snapshots, rates, '2026-08', 'CNY', 'asset', subs)
+    const liabNested = summarizeMonthByCategoryAndAccount(accounts, snapshots, rates, '2026-08', 'CNY', 'liability', subs)
+    let assetSum = new Decimal(0)
+    let liabSum = new Decimal(0)
+    for (const m of assetNested.values()) for (const v of m.values()) assetSum = assetSum.add(v)
+    for (const m of liabNested.values()) for (const v of m.values()) liabSum = liabSum.add(v)
+    expect(assetSum.sub(liabSum).toNumber()).toBe(1400)
+  })
+})
+
+describe('accountNetChanges', () => {
+  const accounts2 = [
+    makeAccount({ id: 'a1', category: 'cash' }),
+    makeAccount({ id: 'a2', category: 'investment' }),
+    makeAccount({ id: 'a3', type: 'liability', category: 'mortgage' }),
+  ]
+  const subs2: SubAccount[] = [
+    { id: 's1', account_id: 'a1', name: '', type: 'asset', category: 'cash', currency: 'CNY', include_in_networth: true, archived: false, sort_order: 0, created_at: '', updated_at: '' },
+    { id: 's2', account_id: 'a2', name: '', type: 'asset', category: 'investment', currency: 'CNY', include_in_networth: true, archived: false, sort_order: 0, created_at: '', updated_at: '' },
+    { id: 's3', account_id: 'a3', name: '', type: 'liability', category: 'mortgage', currency: 'CNY', include_in_networth: true, archived: false, sort_order: 0, created_at: '', updated_at: '' },
+  ]
+  // 现金 +500、投资 +600、房贷余额 −100（对净资产 +100）→ 合计 +1200
+  const breaks: Snapshot[] = [
+    makeSnap({ id: 'b1', account_id: 'a1', sub_account_id: 's1', month: '2026-08', balance: '1000' }),
+    makeSnap({ id: 'b2', account_id: 'a2', sub_account_id: 's2', month: '2026-08', balance: '2000' }),
+    makeSnap({ id: 'b3', account_id: 'a3', sub_account_id: 's3', month: '2026-08', balance: '500' }),
+    makeSnap({ id: 'b4', account_id: 'a1', sub_account_id: 's1', month: '2026-09', balance: '1500' }),
+    makeSnap({ id: 'b5', account_id: 'a2', sub_account_id: 's2', month: '2026-09', balance: '2600' }),
+    makeSnap({ id: 'b6', account_id: 'a3', sub_account_id: 's3', month: '2026-09', balance: '400' }),
+  ]
+
+  it('各账户贡献之和等于净资产变化（可加总核对）', () => {
+    const map = accountNetChanges(accounts2, subs2, breaks, [], '2026-09', '2026-08', 'CNY')
+    expect(map.get('a1')?.toNumber()).toBe(500)
+    expect(map.get('a2')?.toNumber()).toBe(600)
+    expect(map.get('a3')?.toNumber()).toBe(100)
+
+    let sum = new Decimal(0)
+    for (const v of map.values()) sum = sum.add(v)
+    const delta = summarizeMonth(accounts2, breaks, [], '2026-09', 'CNY', subs2)
+      .networth.sub(summarizeMonth(accounts2, breaks, [], '2026-08', 'CNY', subs2).networth)
+    expect(sum.toNumber()).toBe(delta.toNumber())
+  })
+
+  it('传 category 时只统计该分类下的子账户', () => {
+    const map = accountNetChanges(accounts2, subs2, breaks, [], '2026-09', '2026-08', 'CNY', 'investment')
+    expect([...map.keys()]).toEqual(['a2'])
+    expect(map.get('a2')?.toNumber()).toBe(600)
   })
 })

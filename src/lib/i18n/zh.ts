@@ -67,6 +67,7 @@ const zh = {
   'dashboard.net_worth_trend': '净资产趋势',
 
   'dashboard.asset_composition': '资产构成',
+  'dashboard.liability_composition': '负债构成',
 
   'dashboard.last_12_months': '近 12 月',
 
@@ -690,6 +691,27 @@ const zh = {
   'top_changes.title': '变动最大',
   'top_changes.no_accounts': '该分类下无变动账户',
 
+  // 净增额分解（复盘页）
+  'breakdown.title': '净增额去向',
+  'breakdown.title_down': '净减额去向',
+  'breakdown.subtitle': '{from} → {to}，各分类对本月变化的贡献',
+  'breakdown.category_contribution': '该分类贡献',
+  'breakdown.liability': '负债',
+  'breakdown.total': '合计（= 净资产变化）',
+  'breakdown.other': '其他 {count} 项',
+  'breakdown.collapse': '收起',
+  'breakdown.no_change': '与上期持平，没有可分解的变动',
+  'breakdown.no_accounts': '该分类下没有账户变动',
+
+  // 资产结构变化（复盘页）
+  'composition_shift.title': '资产结构变化',
+  'composition_shift.subtitle': '上下两条为两月的资产占比，右侧为占比变化',
+  'composition_shift.pp': 'pp',
+  'composition_shift.pp_hint': '百分点（1pp = 1%）',
+  'composition_shift.other': '其他 {count} 项',
+  'composition_shift.collapse': '收起',
+  'composition_shift.no_data': '两个月都没有资产数据',
+
   // 通用
   'common.all': '全部',
   'common.drag_reorder': '拖拽排序',
@@ -708,6 +730,9 @@ const zh = {
   'analytics.kpi_best_none': '无变动',
   'analytics.kpi_no_data': '无对比数据',
   'analytics.mom_ranking': '环比变动排行',
+  'analytics.total_up': '上涨 {count} 个',
+  'analytics.total_down': '下跌 {count} 个',
+  'analytics.total_net': '净变动',
   'analytics.per_page': '每页',
   'analytics.no_change_data': '暂无变动数据',
 
@@ -933,6 +958,7 @@ const zh = {
   'compare.title': '两月对比',
   'compare.subtitle': '选择任意两个月份，查看净资产的变化',
   'compare.month_from': '起始',
+  'compare.from_value': '期初',
   'compare.month_to': '截止',
   'compare.swap': '交换',
   'compare.net_worth': '净资产',

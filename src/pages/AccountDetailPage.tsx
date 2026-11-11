@@ -4,6 +4,7 @@ import { ArrowLeft, Pencil, ChevronRight } from 'lucide-react'
 import EChart from '@/components/EChart'
 import Skeleton from '@/components/Skeleton'
 import { useAccount, useSubAccounts, useAccountSnapshots, useExchangeRates } from '@/hooks/useData'
+import { useGoBack } from '@/hooks/useGoBack'
 import { useSettingsStore } from '@/store/settings'
 import { rateFor, formatMoney, buildSnapshotMap } from '@/lib/money'
 import { formatMonth } from '@/lib/date'
@@ -24,6 +25,7 @@ export default function AccountDetailPage() {
   const hide = settings?.privacy_mode ?? false
   const invert = settings?.invert_change_color ?? false
   const { t } = useTranslation()
+  const goBack = useGoBack('/accounts')
   const [selectedSubId, setSelectedSubId] = useState<string | null>(null)
 
   const activeSubs = useMemo(() =>
@@ -44,7 +46,7 @@ export default function AccountDetailPage() {
     const values = allMonths.map((month) => {
       let total = new Decimal(0)
       for (const sa of activeSubs) {
-        const snap = snapMap.get(`\${account.id}|\${month}|\${sa.id}`)
+        const snap = snapMap.get(`${account.id}|${month}|${sa.id}`)
         if (!snap || !snap.balance) continue
         const rate = rateFor(rates, snap.currency ?? sa.currency, month, base)
         if (!rate) continue
@@ -77,7 +79,7 @@ export default function AccountDetailPage() {
   const subChartOption = useMemo(() => {
     if (!selectedSub || !account) return {}
     const values = allMonths.map((month) => {
-      const snap = snapMap.get(`\${account.id}|\${month}|\${selectedSub.id}`)
+      const snap = snapMap.get(`${account.id}|${month}|${selectedSub.id}`)
       if (!snap || !snap.balance) return null
       const rate = rateFor(rates, snap.currency ?? selectedSub.currency, month, base)
       if (!rate) return null
@@ -109,7 +111,7 @@ export default function AccountDetailPage() {
         .slice()
         .reverse()
         .find((m) => snapMap.has(`${account?.id}|${m}|${sa.id}`) || snapMap.has(`${account?.id}|${m}`))
-      const snap = snapMap.get(`\${account?.id}|\${latest}|\${sa.id}`)
+      const snap = snapMap.get(`${account?.id}|${latest}|${sa.id}`)
       return {
         sub: sa,
         balance: snap?.balance ?? null,
@@ -150,7 +152,7 @@ export default function AccountDetailPage() {
   return (
     <div className="px-4 lg:px-8 pt-4 pb-8">
       <div className="flex items-center gap-3 mb-4">
-        <Link to="/accounts" className="btn-ghost p-2 -ml-2"><ArrowLeft size={20} /></Link>
+        <button onClick={goBack} className="btn-ghost p-2 -ml-2" aria-label={t('common.back')} title={t('common.back')}><ArrowLeft size={20} /></button>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold truncate">{account.name}</h1>
           <div className="text-xs text-slate-500">{t('accounts.subaccount_count', { count: activeSubs.length })}</div>
@@ -234,9 +236,9 @@ export default function AccountDetailPage() {
             </thead>
             <tbody>
               {allMonths.slice().reverse().map((m, i, arr) => {
-                const snap = snapMap.get(`\${account.id}|\${m}|\${selectedSub.id}`)
+                const snap = snapMap.get(`${account.id}|${m}|${selectedSub.id}`)
                 const prevM = arr[i + 1]
-                const prevSnap = prevM ? (snapMap.get(`\${account.id}|\${prevM}|\${selectedSub.id}`)) : null
+                const prevSnap = prevM ? (snapMap.get(`${account.id}|${prevM}|${selectedSub.id}`)) : null
                 const diff = snap && prevSnap && snap.balance && prevSnap.balance
                   ? new Decimal(snap.balance).sub(new Decimal(prevSnap.balance))
                   : null

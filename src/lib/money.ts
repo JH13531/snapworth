@@ -243,11 +243,14 @@ export function formatMoney(value: Decimal | string | number, currency = 'CNY', 
   const decimals = currency === 'JPY' ? 0 : 2
   // 用 toFixed 而非 toNumber().toLocaleString()，避免大金额（>2^53）丢失精度
   const fixed = d.toFixed(decimals)
-  const dotIndex = fixed.indexOf('.')
-  const intPart = dotIndex >= 0 ? fixed.slice(0, dotIndex) : fixed
-  const decPart = dotIndex >= 0 ? fixed.slice(dotIndex + 1) : ''
+  // 负号要放在货币符号之前（"-¥3,000.00"），否则读起来像「¥ 负 3000」
+  const negative = fixed.startsWith('-')
+  const abs = negative ? fixed.slice(1) : fixed
+  const dotIndex = abs.indexOf('.')
+  const intPart = dotIndex >= 0 ? abs.slice(0, dotIndex) : abs
+  const decPart = dotIndex >= 0 ? abs.slice(dotIndex + 1) : ''
   const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  return `${sym}${withCommas}${decPart ? '.' + decPart : ''}`
+  return `${negative ? '-' : ''}${sym}${withCommas}${decPart ? '.' + decPart : ''}`
 }
 
 export function pctChange(current: Decimal, previous: Decimal): Decimal | null {
@@ -256,10 +259,13 @@ export function pctChange(current: Decimal, previous: Decimal): Decimal | null {
 }
 
 /**
- * 按分类汇总某月的资产或负债总值。
- * 返回 Map<categoryKey, totalValueInBaseCurrency>
+ * 按「分类 → 账户」两级汇总某月某类型的金额（已折算为基准币种）。
+ * 返回 Map<categoryKey, Map<accountId, totalValueInBaseCurrency>>
+ *
+ * 这是分类汇总的唯一实现：summarizeMonthByCategory 只是把它塌成一层，
+ * 因此「分类级合计」与「账户级明细之和」天然相等，可用于加总核对。
  */
-export function summarizeMonthByCategory(
+function collectByCategoryAccount(
   accounts: Account[],
   snapshots: Snapshot[],
   rates: ExchangeRate[],
@@ -267,8 +273,8 @@ export function summarizeMonthByCategory(
   base: string,
   type: 'asset' | 'liability',
   subAccounts?: SubAccount[],
-): Map<string, Decimal> {
-  const catMap = new Map<string, Decimal>()
+): Map<string, Map<string, Decimal>> {
+  const out = new Map<string, Map<string, Decimal>>()
   const snapMap = buildSnapshotMap(snapshots)
   const units = buildSummaryUnits(accounts, subAccounts ?? [])
 
@@ -287,10 +293,95 @@ export function summarizeMonthByCategory(
     const rate = rateFor(rates, currency, month, base)
     if (!rate) continue
     const val = new Decimal(snap.balance).mul(rate)
-    catMap.set(unit.category, (catMap.get(unit.category) ?? new Decimal(0)).add(val))
+    let byAccount = out.get(unit.category)
+    if (!byAccount) {
+      byAccount = new Map<string, Decimal>()
+      out.set(unit.category, byAccount)
+    }
+    byAccount.set(unit.account_id, (byAccount.get(unit.account_id) ?? new Decimal(0)).add(val))
   }
 
+  return out
+}
+
+/**
+ * 按分类汇总某月的资产或负债总值。
+ * 返回 Map<categoryKey, totalValueInBaseCurrency>
+ */
+export function summarizeMonthByCategory(
+  accounts: Account[],
+  snapshots: Snapshot[],
+  rates: ExchangeRate[],
+  month: string,
+  base: string,
+  type: 'asset' | 'liability',
+  subAccounts?: SubAccount[],
+): Map<string, Decimal> {
+  const nested = collectByCategoryAccount(accounts, snapshots, rates, month, base, type, subAccounts)
+  const catMap = new Map<string, Decimal>()
+  for (const [category, byAccount] of nested) {
+    let total = new Decimal(0)
+    for (const v of byAccount.values()) total = total.add(v)
+    catMap.set(category, total)
+  }
   return catMap
+}
+
+/**
+ * 按「分类 → 账户」两级汇总某月的资产或负债（已折算为基准币种）。
+ * 供净增额分解图做「分类级排序 + 下钻到账户」使用。
+ */
+export function summarizeMonthByCategoryAndAccount(
+  accounts: Account[],
+  snapshots: Snapshot[],
+  rates: ExchangeRate[],
+  month: string,
+  base: string,
+  type: 'asset' | 'liability',
+  subAccounts?: SubAccount[],
+): Map<string, Map<string, Decimal>> {
+  return collectByCategoryAccount(accounts, snapshots, rates, month, base, type, subAccounts)
+}
+
+/**
+ * 各账户在两个月之间的净资产变动额（折算为基准币种）。
+ * 资产账户为正贡献、负债账户取反，因此所有账户之和等于净资产变化。
+ *
+ * category 传入时只统计该分类下的子账户——供分析页「排行跟随分类筛选」使用。
+ */
+export function accountNetChanges(
+  accounts: Account[],
+  subAccounts: SubAccount[],
+  snapshots: Snapshot[],
+  rates: ExchangeRate[],
+  month: string,
+  priorMonth: string,
+  base: string,
+  category?: string,
+): Map<string, Decimal> {
+  const collect = (m: string) => {
+    const out = new Map<string, Decimal>()
+    for (const type of ['asset', 'liability'] as const) {
+      const nested = summarizeMonthByCategoryAndAccount(accounts, snapshots, rates, m, base, type, subAccounts)
+      for (const [cat, byAccount] of nested) {
+        if (category && cat !== category) continue
+        for (const [accId, val] of byAccount) {
+          out.set(accId, (out.get(accId) ?? new Decimal(0)).add(type === 'asset' ? val : val.neg()))
+        }
+      }
+    }
+    return out
+  }
+
+  const cur = collect(month)
+  const prev = collect(priorMonth)
+  const ids = new Set<string>([...cur.keys(), ...prev.keys()])
+  const result = new Map<string, Decimal>()
+  for (const id of ids) {
+    const delta = (cur.get(id) ?? new Decimal(0)).sub(prev.get(id) ?? new Decimal(0))
+    if (!delta.isZero()) result.set(id, delta)
+  }
+  return result
 }
 
 /**

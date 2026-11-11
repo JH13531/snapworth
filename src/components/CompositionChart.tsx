@@ -2,6 +2,7 @@ import EChart from '@/components/EChart'
 import { useMemo, useState } from 'react'
 import type { Account, SubAccount, Snapshot, ExchangeRate } from '@/types'
 import { rateFor, buildSnapshotMap, formatMoney } from '@/lib/money'
+import { chartColorAt } from '@/lib/palette'
 import { categoryLabel, subAccountName, subAccountIcon, subAccountColor } from '@/types'
 import { Icon } from '@/components/Icon'
 import { Link } from 'react-router-dom'
@@ -22,8 +23,6 @@ interface Props {
   focusAccount?: string | null
   onClearFocus?: () => void
 }
-
-const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6', '#84cc16', '#64748b']
 
 export default function CompositionChart({ accounts, subAccounts = [], snapshots, rates, month, base, hide, type = 'asset', focusCat, focusAccount, onClearFocus }: Props) {
   const { t } = useTranslation()
@@ -95,7 +94,7 @@ export default function CompositionChart({ accounts, subAccounts = [], snapshots
   const categoryTotal = itemList.reduce((s, x) => s + x.value.toNumber(), 0)
 
   const pieOption = useMemo(() => {
-    const data = catData.map((d, i) => ({ ...d, itemStyle: { color: PIE_COLORS[i % PIE_COLORS.length] } }))
+    const data = catData.map((d, i) => ({ ...d, itemStyle: { color: chartColorAt(i) } }))
     return {
       tooltip: {
         formatter: (p: { name: string; value: number; percent: number }) =>

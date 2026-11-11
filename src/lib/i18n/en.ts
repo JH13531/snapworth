@@ -67,6 +67,7 @@ const en = {
   'dashboard.net_worth_trend': 'Net Worth Trend',
 
   'dashboard.asset_composition': 'Asset Composition',
+  'dashboard.liability_composition': 'Debt Composition',
 
   'dashboard.last_12_months': '12M',
 
@@ -690,6 +691,27 @@ const en = {
   'top_changes.title': 'Biggest changes',
   'top_changes.no_accounts': 'No accounts changed in this category',
 
+  // Net change breakdown (review page)
+  'breakdown.title': 'Where the change came from',
+  'breakdown.title_down': 'Where the decrease came from',
+  'breakdown.subtitle': '{from} → {to}, contribution of each category',
+  'breakdown.category_contribution': 'Category contribution',
+  'breakdown.liability': 'Debt',
+  'breakdown.total': 'Total (= net worth change)',
+  'breakdown.other': '{count} other items',
+  'breakdown.collapse': 'Collapse',
+  'breakdown.no_change': 'No change versus the prior period',
+  'breakdown.no_accounts': 'No account changed in this category',
+
+  // Composition shift (review page)
+  'composition_shift.title': 'How the mix shifted',
+  'composition_shift.subtitle': 'Share of total assets in each month',
+  'composition_shift.pp': 'pp',
+  'composition_shift.pp_hint': 'percentage points (1pp = 1%)',
+  'composition_shift.other': '{count} other items',
+  'composition_shift.collapse': 'Collapse',
+  'composition_shift.no_data': 'No asset data in either month',
+
   // Common
   'common.all': 'All',
   'common.drag_reorder': 'Drag to reorder',
@@ -708,6 +730,9 @@ const en = {
   'analytics.kpi_best_none': 'No change',
   'analytics.kpi_no_data': 'No prior data',
   'analytics.mom_ranking': 'Month-over-month changes',
+  'analytics.total_up': '{count} up',
+  'analytics.total_down': '{count} down',
+  'analytics.total_net': 'Net',
   'analytics.per_page': 'Per page',
   'analytics.no_change_data': 'No change data yet',
 
@@ -933,6 +958,7 @@ const en = {
   'compare.title': 'Compare Two Months',
   'compare.subtitle': 'Pick any two months to see how your net worth moved',
   'compare.month_from': 'From',
+  'compare.from_value': 'from',
   'compare.month_to': 'To',
   'compare.swap': 'Swap',
   'compare.net_worth': 'Net Worth',

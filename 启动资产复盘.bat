@@ -1,27 +1,35 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
+rem ============================================================
+rem ¡¾ÖØÒª¡¿±¾ÎÄ¼þ±ØÐë´æÎª GBK/ANSI ±àÂë + CRLF »»ÐÐ£¡
+rem   cmd.exe °´µ±Ç°´úÂëÒ³Öð×Ö½Ú¶ÁÈ¡Åú´¦ÀíÎÄ¼þ¡£Èô±¾ÎÄ¼þ±»´æ³É
+rem   UTF-8£¨ÓÈÆä»¹´ø LF »»ÐÐ£©£¬ÖÐÎÄ×Ö·û»áµ¼ÖÂ¶ÁÈ¡Î»ÖÃ´íÎ»£º
+rem   ÐÐÊ×µÄ echo/if ±»ÍÌµô¡¢Ö»Ê£°ë¾ä»°±»µ±³ÉÃüÁîÖ´ÐÐ£¬
+rem   ±íÏÖÎªÂúÆÁ¡¸²»ÊÇÄÚ²¿»òÍâ²¿ÃüÁî¡¹£¬·þÎñÆð²»À´¡£
+rem   ÈçÐèÐÞ¸Ä£¬ÇëÔÚ±à¼­Æ÷Àï±£³Ö¡¸GBK + CRLF¡¹Áí´æ¡£
+rem ============================================================
 setlocal
 
-rem åˆ‡æ¢åˆ°è„šæœ¬æ‰€åœ¨ç›®å½•ï¼Œå…¨éƒ¨ä½¿ç”¨ç›¸å¯¹è·¯å¾„ï¼Œé¡¹ç›®æ–‡ä»¶å¤¹å¯éšæ„ç§»åŠ¨æ”¹å
+rem ÇÐ»»µ½½Å±¾ËùÔÚÄ¿Â¼£¬È«²¿Ê¹ÓÃÏà¶ÔÂ·¾¶£¬ÏîÄ¿ÎÄ¼þ¼Ð¿ÉËæÒâÒÆ¶¯¸ÄÃû
 cd /d "%~dp0"
 
 echo ============================================
-echo   Snapworth èµ„äº§å¤ç›˜
-echo   å½“å‰ç›®å½•: %CD%
+echo   Snapworth ×Ê²ú¸´ÅÌ
+echo   µ±Ç°Ä¿Â¼: %CD%
 echo ============================================
 echo.
 
 if exist "dist\index.html" goto :have_dist
-echo [é”™è¯¯] æœªæ‰¾åˆ° dist æž„å»ºäº§ç‰©ã€‚
-echo        è¯·ä¸‹è½½åŒ…å« dist ç›®å½•çš„å®Œæ•´å‘è¡ŒåŒ…ï¼Œ
-echo        æˆ–ç”±å¼€å‘è€…å…ˆè¿è¡Œ npm run build ç”Ÿæˆã€‚
+echo [´íÎó] Î´ÕÒµ½ dist ¹¹½¨²úÎï¡£
+echo        ÇëÏÂÔØ°üº¬ dist Ä¿Â¼µÄÍêÕû·¢ÐÐ°ü£¬
+echo        »òÓÉ¿ª·¢ÕßÏÈÔËÐÐ npm run build Éú³É¡£
 goto :end
 :have_dist
 
 netstat -ano | findstr /c:":5174 " | findstr LISTENING >nul 2>&1
 if not errorlevel 1 goto :busy
 
-rem ä¼˜å…ˆç”¨ Python è‡ªå¸¦çš„é™æ€æœåŠ¡å™¨ï¼ˆæ— éœ€å®‰è£…ä»»ä½•ä¸œè¥¿ï¼‰ï¼Œå…¶æ¬¡ç”¨ npx serve
+rem ÓÅÏÈÓÃ Python ×Ô´øµÄ¾²Ì¬·þÎñÆ÷£¨ÎÞÐè°²×°ÈÎºÎ¶«Î÷£©£¬Æä´ÎÓÃ npx serve
 set "SERVER_CMD="
 where py >nul 2>&1
 if not errorlevel 1 set "SERVER_CMD=py -3 -m http.server 5174 --bind 127.0.0.1 --directory dist"
@@ -35,25 +43,25 @@ if not defined SERVER_CMD (
 )
 if not defined SERVER_CMD goto :noruntime
 
-echo [1/2] æ­£åœ¨å¯åŠ¨æœ¬åœ°æœåŠ¡ï¼ˆåœ¨ç‹¬ç«‹çª—å£ä¸­è¿è¡Œï¼‰...
-start "Snapworth èµ„äº§å¤ç›˜æœåŠ¡" /min cmd /c %SERVER_CMD%
+echo [1/2] ÕýÔÚÆô¶¯±¾µØ·þÎñ£¨ÔÚ¶ÀÁ¢´°¿ÚÖÐÔËÐÐ£©...
+start "Snapworth ×Ê²ú¸´ÅÌ·þÎñ" /min cmd /c %SERVER_CMD%
 ping -n 4 127.0.0.1 >nul
-echo [2/2] æ­£åœ¨æ‰“å¼€æµè§ˆå™¨ http://localhost:5174
+echo [2/2] ÕýÔÚ´ò¿ªä¯ÀÀÆ÷ http://localhost:5174
 start "" http://localhost:5174
 echo.
-echo æœåŠ¡å·²åœ¨æœ€å°åŒ–çª—å£ã€ŒSnapworth èµ„äº§å¤ç›˜æœåŠ¡ã€ä¸­è¿è¡Œï¼Œ
-echo å…³é—­é‚£ä¸ªçª—å£å³åœæ­¢æœåŠ¡ã€‚æœ¬çª—å£å¯ç›´æŽ¥å…³é—­ã€‚
+echo ·þÎñÒÑÔÚ×îÐ¡»¯´°¿Ú¡¸Snapworth ×Ê²ú¸´ÅÌ·þÎñ¡¹ÖÐÔËÐÐ£¬
+echo ¹Ø±ÕÄÇ¸ö´°¿Ú¼´Í£Ö¹·þÎñ¡£±¾´°¿Ú¿ÉÖ±½Ó¹Ø±Õ¡£
 goto :end
 
 :busy
-echo [æç¤º] ç«¯å£ 5174 å·²æœ‰å®žä¾‹åœ¨è¿è¡Œï¼Œç›´æŽ¥æ‰“å¼€æµè§ˆå™¨è®¿é—®å³å¯ã€‚
-echo        å¦‚éœ€é‡å¯ï¼Œå…ˆå…³é—­é‚£ä¸ªçª—å£å†åŒå‡»æœ¬æ–‡ä»¶ã€‚
+echo [ÌáÊ¾] ¶Ë¿Ú 5174 ÒÑÓÐÊµÀýÔÚÔËÐÐ£¬Ö±½Ó´ò¿ªä¯ÀÀÆ÷·ÃÎÊ¼´¿É¡£
+echo        ÈçÐèÖØÆô£¬ÏÈ¹Ø±ÕÄÇ¸ö´°¿ÚÔÙË«»÷±¾ÎÄ¼þ¡£
 start "" http://localhost:5174
 goto :end
 
 :noruntime
-echo [é”™è¯¯] éœ€è¦ Python æˆ– Node.js å…¶ä¸­ä¹‹ä¸€æ¥å¯åŠ¨æœ¬åœ°æœåŠ¡ã€‚
-echo        è¯·å®‰è£… Python: https://www.python.org/ æˆ– Node.js: https://nodejs.org/
+echo [´íÎó] ÐèÒª Python »ò Node.js ÆäÖÐÖ®Ò»À´Æô¶¯±¾µØ·þÎñ¡£
+echo        Çë°²×° Python: https://www.python.org/ »ò Node.js: https://nodejs.org/
 
 :end
 echo.

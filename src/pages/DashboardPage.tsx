@@ -37,6 +37,8 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const month = currentMonth()
   const [chartRange, setChartRange] = useState<number | 'year' | undefined>(12)
+  /** 构成图看资产还是负债：无负债的用户只显示资产，切换器也不出现 */
+  const [compType, setCompType] = useState<'asset' | 'liability'>('asset')
 
   const snapMap = useMemo(() => buildSnapshotMap(snapshots), [snapshots])
   const hasCurrentMonthData = subAccounts.some((sa) => !sa.archived && sa.include_in_networth && snapMap.has(`${sa.account_id}|${month}|${sa.id}`))
@@ -90,6 +92,7 @@ export default function DashboardPage() {
 
   const months = allMonths(snapshots)
   const hasData = months.length > 0 && accounts.length > 0
+  const hasLiabilities = current.liabilities.gt(0)
 
   // 计算连续记录月数（streak）
   const streak = useMemo(() => {
@@ -456,8 +459,30 @@ export default function DashboardPage() {
         </div>
 
         <div className="card p-4 lg:p-5">
-          <h2 className="font-semibold mb-2">{t('dashboard.asset_composition')}</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-semibold">
+              {compType === 'asset' ? t('dashboard.asset_composition') : t('dashboard.liability_composition')}
+            </h2>
+            {hasLiabilities && (
+              <div className="flex items-center rounded-md bg-slate-100 dark:bg-slate-800 p-0.5">
+                {(['asset', 'liability'] as const).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setCompType(k)}
+                    className={`px-2 py-0.5 text-xs rounded-md transition-colors ${
+                      compType === k
+                        ? 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    {t(k === 'asset' ? 'accounts.asset' : 'accounts.liability')}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <CompositionChart
+            key={compType}
             accounts={accounts}
             subAccounts={subAccounts}
             snapshots={snapshots}
@@ -465,7 +490,7 @@ export default function DashboardPage() {
             month={month}
             base={base}
             hide={hide}
-            type="asset"
+            type={compType}
           />
         </div>
 

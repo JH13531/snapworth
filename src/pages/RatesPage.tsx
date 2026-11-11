@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { ArrowLeft, Plus, Trash2, Download, Loader2, Globe, MoreVertical } from 'lucide-react'
 import { useExchangeRates, useSnapshots, useAccounts } from '@/hooks/useData'
+import { useGoBack } from '@/hooks/useGoBack'
 import EChart from '@/components/EChart'
 import { useSettingsStore } from '@/store/settings'
 import { db } from '@/db'
@@ -21,6 +21,7 @@ export default function RatesPage() {
   const base = settings?.base_currency ?? 'CNY'
   const { toast } = useToast()
   const { t } = useTranslation()
+  const goBack = useGoBack('/settings')
   const [month, setMonth] = useState(currentMonth())
   const [newCurrency, setNewCurrency] = useState('')
   const [newRate, setNewRate] = useState('')
@@ -217,7 +218,7 @@ export default function RatesPage() {
   return (
     <div className="px-4 lg:max-w-2xl lg:mx-auto pt-4 pb-8">
       <div className="flex items-center gap-3 mb-5">
-        <Link to="/settings" className="btn-ghost p-2 -ml-2"><ArrowLeft size={20} /></Link>
+        <button onClick={goBack} className="btn-ghost p-2 -ml-2" aria-label={t('common.back')} title={t('common.back')}><ArrowLeft size={20} /></button>
         <h1 className="text-xl font-bold">{t('rates.title')}</h1>
       </div>
 

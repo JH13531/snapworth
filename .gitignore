@@ -41,3 +41,4 @@ dev-dist/
 # Local design & product docs (not source)
 /E2EE_SYNC_DESIGN.md
 /PRD.md
+/KEY_RECOVERY_DESIGN.md

@@ -2,55 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { ArrowLeftRight, ChevronDown, Info } from 'lucide-react'
 import { useAccountsWithReady, useSubAccountsWithReady, useSnapshots, useExchangeRates } from '@/hooks/useData'
 import { useSettingsStore } from '@/store/settings'
-import {
-  summarizeMonth,
-  summarizeMonthByCategory,
-  pctChange,
-  allMonths,
-  formatMoney,
-} from '@/lib/money'
+import { summarizeMonth, pctChange, allMonths, formatMoney } from '@/lib/money'
 import { monthDiff, formatMonth } from '@/lib/date'
 import { calcCAGR, formatRate } from '@/lib/growth'
-import { categoryLabel, type Account, type SubAccount, type Snapshot, type ExchangeRate } from '@/types'
-import CompareChart from '@/components/CompareChart'
+import NetChangeBreakdown from '@/components/NetChangeBreakdown'
 import { MonthPicker } from '@/components/MonthPicker'
 import { useTranslation } from '@/lib/i18n'
 import Decimal from 'decimal.js'
-
-interface CatDelta {
-  key: string
-  type: 'asset' | 'liability'
-  from: Decimal
-  to: Decimal
-  delta: Decimal
-}
-
-/** 合并某类型在两个月份的按类汇总，返回按变化绝对值排序的行。 */
-function buildDeltas(
-  accounts: Account[],
-  snapshots: Snapshot[],
-  rates: ExchangeRate[],
-  from: string,
-  to: string,
-  base: string,
-  subAccounts: SubAccount[],
-  type: 'asset' | 'liability',
-): CatDelta[] {
-  const fromMap = summarizeMonthByCategory(accounts, snapshots, rates, from, base, type, subAccounts)
-  const toMap = summarizeMonthByCategory(accounts, snapshots, rates, to, base, type, subAccounts)
-  const rows: CatDelta[] = []
-  // 遍历实际出现的分类（含用户自定义分类），而非固定 CATEGORIES，
-  // 否则自定义分类的对比行会整体缺失。
-  const catKeys = new Set<string>([...fromMap.keys(), ...toMap.keys()])
-  for (const key of catKeys) {
-    const fromV = fromMap.get(key) ?? new Decimal(0)
-    const toV = toMap.get(key) ?? new Decimal(0)
-    const delta = toV.sub(fromV)
-    if (delta.isZero()) continue
-    rows.push({ key, type, from: fromV, to: toV, delta })
-  }
-  return rows.sort((a, b) => b.delta.abs().minus(a.delta.abs()).toNumber())
-}
 
 export default function ComparePage() {
   const { accounts, ready: accountsReady } = useAccountsWithReady({ includeArchived: true })
@@ -94,15 +52,6 @@ export default function ComparePage() {
     ? calcCAGR(fromSum.networth, toSum.networth, span)
     : { rate: null, reason: 'zero_span' as const, years: 0 }
 
-  const assetRows = useMemo(
-    () => (from && to ? buildDeltas(accounts, snapshots, rates, from, to, base, subAccounts, 'asset') : []),
-    [accounts, snapshots, rates, from, to, base, subAccounts],
-  )
-  const liabRows = useMemo(
-    () => (from && to ? buildDeltas(accounts, snapshots, rates, from, to, base, subAccounts, 'liability') : []),
-    [accounts, snapshots, rates, from, to, base, subAccounts],
-  )
-
   const changeColor = (v: Decimal) => {
     if (v.isZero()) return 'text-slate-400'
     const up = v.gte(0)
@@ -111,22 +60,9 @@ export default function ComparePage() {
       : (up ? 'text-red-500' : 'text-green-500')
   }
 
-  const deltaColor = (delta: Decimal, type: 'asset' | 'liability') => {
-    // 负债增加时净资产减少，因此用反向符号套用同一套涨跌色
-    const eff = type === 'liability' ? delta.neg() : delta
-    return changeColor(eff)
-  }
-  const deltaBarColor = (delta: Decimal, type: 'asset' | 'liability') => {
-    const up = delta.gte(0)
-    const good = type === 'asset' ? up : !up
-    return good ? (invert ? 'bg-green-500' : 'bg-red-500') : (invert ? 'bg-red-500' : 'bg-green-500')
-  }
-
-  const maxAbs = Math.max(
-    1,
-    ...assetRows.map((r) => r.delta.abs().toNumber()),
-    ...liabRows.map((r) => r.delta.abs().toNumber()),
-  )
+  /** 总量行的涨跌色：负债增加对净资产是负向，故取反后再套用同一套配色 */
+  const deltaTone = (v: Decimal, type: 'asset' | 'liability') =>
+    changeColor(type === 'liability' ? v.neg() : v)
 
   if (!ready) {
     return <div className="px-4 lg:px-8 pt-6 text-slate-400">{t('common.loading')}</div>
@@ -225,29 +161,43 @@ export default function ComparePage() {
             </div>
           </div>
 
-          {/* 对比柱状图 */}
-          <div className="card p-4 mb-4">
-            <CompareChart
+          {/* 资产 / 负债总量对照（替代原来的三指标柱状图） */}
+          <div className="card p-4 mb-4 grid grid-cols-2 gap-4">
+            <TotalStat
+              label={t('compare.assets')}
+              from={fromSum.assets}
+              to={toSum.assets}
+              type="asset"
               base={base}
               hide={hide}
-              fromLabel={formatMonth(from)}
-              toLabel={formatMonth(to)}
-              metrics={[
-                { name: t('compare.net_worth'), from: fromSum.networth.toNumber(), to: toSum.networth.toNumber() },
-                { name: t('compare.assets'), from: fromSum.assets.toNumber(), to: toSum.assets.toNumber() },
-                { name: t('compare.liabilities'), from: fromSum.liabilities.toNumber(), to: toSum.liabilities.toNumber() },
-              ]}
+              deltaTone={deltaTone}
+            />
+            <TotalStat
+              label={t('compare.liabilities')}
+              from={fromSum.liabilities}
+              to={toSum.liabilities}
+              type="liability"
+              base={base}
+              hide={hide}
+              deltaTone={deltaTone}
             />
           </div>
 
-          {/* 分类变化 */}
+          {/* 净增额去向：分类级排序 + 下钻到账户，各项之和可核对 */}
           <div className="card p-4 mb-4">
-            <h2 className="font-semibold text-sm mb-3">{t('compare.category_deltas')}</h2>
-            <CategoryDeltaList title={t('compare.asset_change')} rows={assetRows} maxAbs={maxAbs} hide={hide} base={base} deltaColor={deltaColor} deltaBarColor={deltaBarColor} />
-            <div className="h-px bg-slate-100 dark:bg-slate-800 my-3" />
-            <CategoryDeltaList title={t('compare.liability_change')} rows={liabRows} maxAbs={maxAbs} hide={hide} base={base} deltaColor={deltaColor} deltaBarColor={deltaBarColor} />
+            <NetChangeBreakdown
+              accounts={accounts}
+              subAccounts={subAccounts}
+              snapshots={snapshots}
+              rates={rates}
+              month={to}
+              priorMonth={from}
+              base={base}
+              hide={hide}
+              invert={invert}
+              maxRows={8}
+            />
           </div>
-
         </>
       )}
 
@@ -268,48 +218,37 @@ export default function ComparePage() {
   )
 }
 
-function CategoryDeltaList({
-  title,
-  rows,
-  maxAbs,
-  hide,
+function TotalStat({
+  label,
+  from,
+  to,
+  type,
   base,
-  deltaColor,
-  deltaBarColor,
+  hide,
+  deltaTone,
 }: {
-  title: string
-  rows: CatDelta[]
-  maxAbs: number
-  hide: boolean
+  label: string
+  from: Decimal
+  to: Decimal
+  type: 'asset' | 'liability'
   base: string
-  deltaColor: (d: Decimal, t: 'asset' | 'liability') => string
-  deltaBarColor: (d: Decimal, t: 'asset' | 'liability') => string
+  hide: boolean
+  deltaTone: (v: Decimal, t: 'asset' | 'liability') => string
 }) {
+  const delta = to.sub(from)
+  const { t } = useTranslation()
   return (
     <div>
-      <div className="text-xs text-slate-400 mb-2">{title}</div>
-      {rows.length === 0 ? (
-        <div className="text-xs text-slate-300 dark:text-slate-600 py-1">—</div>
-      ) : (
-        <div className="space-y-2.5">
-          {rows.map((r) => {
-            const width = (r.delta.abs().toNumber() / maxAbs) * 100
-            return (
-              <div key={r.key}>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="text-slate-600 dark:text-slate-300">{categoryLabel(r.key)}</span>
-                  <span className={`tabular-nums font-medium ${deltaColor(r.delta, r.type)}`}>
-                    {r.delta.gte(0) ? '+' : ''}{formatMoney(r.delta, base, hide)}
-                  </span>
-                </div>
-                <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                  <div className={`h-full rounded-full ${deltaBarColor(r.delta, r.type)}`} style={{ width: `${width}%` }} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-sm font-semibold tabular-nums mt-1">{formatMoney(to, base, hide)}</div>
+      {/* 窄屏两列放不下「期初 → 期末」两个完整金额，改为期初小字 + 变动额并排 */}
+      <div className="text-[11px] tabular-nums mt-0.5">
+        <span className="text-slate-400">{t('compare.from_value')} {formatMoney(from, base, hide)}</span>
+        <span className="text-slate-300"> · </span>
+        <span className={`font-medium ${deltaTone(delta, type)}`}>
+          {delta.gte(0) ? '+' : ''}{formatMoney(delta, base, hide)}
+        </span>
+      </div>
     </div>
   )
 }

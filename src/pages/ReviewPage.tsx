@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Check, Plus, Info, Sparkles } from 'lucide-react'
 import { useAccounts, useSnapshots, useExchangeRates, useMonthlyReview, useSubAccounts } from '@/hooks/useData'
 import { useSettingsStore } from '@/store/settings'
 import { db } from '@/db'
 import { summarizeMonth, formatMoney, pctChange, nearestPriorMonth, assessDebtHealth } from '@/lib/money'
 import { prevMonth, formatMonth } from '@/lib/date'
-import TopChangesCard from '@/components/TopChangesCard'
+import { useGoBack } from '@/hooks/useGoBack'
+import NetChangeBreakdown from '@/components/NetChangeBreakdown'
+import CompositionShift from '@/components/CompositionShift'
 import { writeFileAutoBackup } from '@/lib/backup-file'
 import { needsBackupReminder, daysSinceBackup } from '@/lib/backup-health'
 import { useToast } from '@/components/Toast'
@@ -32,6 +34,7 @@ const TAG_KEYS: Record<string, string> = {
 export default function ReviewPage() {
   const { month = '' } = useParams()
   const navigate = useNavigate()
+  const goBack = useGoBack(`/entry/${month}`)
   const accounts = useAccounts()
   const subAccounts = useSubAccounts()
   const snapshots = useSnapshots()
@@ -127,7 +130,7 @@ export default function ReviewPage() {
   return (<>
     <div className="px-4 lg:px-8 pt-4 pb-8">
       <div className="flex items-center gap-3 mb-5">
-        <Link to={`/entry/${month}`} className="btn-ghost p-2 -ml-2"><ArrowLeft size={20} /></Link>
+        <button onClick={goBack} className="btn-ghost p-2 -ml-2" aria-label={t('common.back')} title={t('common.back')}><ArrowLeft size={20} /></button>
         <h1 className="text-xl font-bold">{t('review.month_suffix', { month: formatMonth(month) })}</h1>
       </div>
 
@@ -204,7 +207,7 @@ export default function ReviewPage() {
 
       {priorMonthKey && (
         <div className="card p-4 mb-4">
-          <TopChangesCard
+          <NetChangeBreakdown
             accounts={accounts}
             subAccounts={subAccounts}
             snapshots={snapshots}
@@ -214,7 +217,21 @@ export default function ReviewPage() {
             base={base}
             hide={hide}
             invert={invert}
-            subtitle={t("review.top_changes_subtitle")}
+          />
+        </div>
+      )}
+
+      {priorMonthKey && (
+        <div className="card p-4 mb-4">
+          <CompositionShift
+            accounts={accounts}
+            subAccounts={subAccounts}
+            snapshots={snapshots}
+            rates={rates}
+            month={month}
+            priorMonth={priorMonthKey}
+            base={base}
+            hide={hide}
           />
         </div>
       )}

@@ -367,15 +367,26 @@ export async function decryptVault(blob: VaultBlob, creds: UnlockCredentials): P
       throw new Error('需要提供密码、恢复码或密钥文件')
     }
 
-    mk = await crypto.subtle.unwrapKey(
-      'raw',
-      wrappedMk as BufferSource,
-      kek,
-      { name: 'AES-KW' },
-      { name: 'AES-GCM' },
-      false,
-      ['decrypt'],
-    )
+    try {
+      mk = await crypto.subtle.unwrapKey(
+        'raw',
+        wrappedMk as BufferSource,
+        kek,
+        { name: 'AES-KW' },
+        { name: 'AES-GCM' },
+        false,
+        ['decrypt'],
+      )
+    } catch {
+      // AES-KW 解包带完整性校验，凭据错误必然在这里抛出。
+      // 注意：WebCrypto 抛的是 message 为空字符串的 DOMException（OperationError），
+      // 若直接透传会导致界面「点了没反应」，所以这里必须给出明确文案。
+      throw new Error(
+        creds.password
+          ? '密码不正确，无法解锁该备份'
+          : '恢复码不正确，无法解锁该备份',
+      )
+    }
   }
 
   const combined = concatBytes(fromB64(blob.ciphertext), fromB64(blob.auth_tag))

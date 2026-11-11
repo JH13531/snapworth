@@ -282,16 +282,21 @@ export default function EntryPage() {
       toast(t('toast.all_filled'), 'success')
       return
     }
-    const el = document.getElementById(`entry-input-${firstEmpty.id}`)
-    if (el) {
-      // 确保该分类组展开
-      const cat = firstEmpty.category
-      if (collapsedAccounts.has(cat)) {
-        setCollapsedAccounts((prev) => { const next = new Set(prev); next.delete(cat); return next })
-      }
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      setTimeout(() => el.focus(), 350)
+    // 折叠集合的 key 是 account_id（见下方分组渲染与折叠按钮），不是 category。
+    // 若目标行所在分组是折叠的，它的输入框根本没渲染到 DOM 里，必须先展开。
+    const accountId = firstEmpty.account_id
+    if (collapsedAccounts.has(accountId)) {
+      setCollapsedAccounts((prev) => { const next = new Set(prev); next.delete(accountId); return next })
     }
+    // 展开是异步渲染：同一 tick 里 getElementById 仍会拿到 null（这正是此前「点了没反应」的原因）。
+    // 等一帧让 React 把分组渲染出来，再做滚动与聚焦。
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`entry-input-${firstEmpty.id}`)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // 立刻 focus 会打断平滑滚动，故与滚动错开
+      setTimeout(() => document.getElementById(`entry-input-${firstEmpty.id}`)?.focus(), 350)
+    })
   }
 
   const [rateModal, setRateModal] = useState<{ currency: string; value: string; rate_date?: string } | null>(null)

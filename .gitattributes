@@ -1,0 +1,18 @@
+# 换行与编码策略（勿删）
+#
+# 启动资产复盘.bat 存的是 GBK/ANSI + CRLF，两者缺一都会让 cmd.exe 解析错位，
+# 表现为「'xxx' 不是内部或外部命令」且浏览器打不开。因此禁止 git 对它做任何
+# 换行转换，按原始字节存取（-text）。
+*.bat -text
+
+# Shell 脚本在 Linux/macOS 上执行，必须是 LF。
+*.sh text eol=lf
+
+# 其余文本按仓库统一 LF 存储，检出时跟随平台。
+*.ts text
+*.tsx text
+*.css text
+*.json text
+*.md text
+*.yml text
+*.yaml text

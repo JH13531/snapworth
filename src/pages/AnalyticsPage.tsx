@@ -1,15 +1,16 @@
 import { useMemo, useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { useAccounts, useSubAccountsWithReady, useSnapshotsForMonths, useExchangeRates, useMonthlyReviews, useSnapshots } from '@/hooks/useData'
 import { useSettingsStore } from '@/store/settings'
-import { summarizeMonth, summarizeAccountMonth, formatMoney, allMonths, assessDebtHealth, summarizeMonthByCategory, pctChange } from '@/lib/money'
+import { summarizeMonth, accountNetChanges, formatMoney, allMonths, assessDebtHealth, summarizeMonthByCategory, pctChange } from '@/lib/money'
 import { categoryLabel } from '@/types'
 import { currentMonth, prevMonth, nextMonth, formatMonth, addMonths } from '@/lib/date'
 import CompositionChart from '@/components/CompositionChart'
 import CategoryTrendChart from '@/components/CategoryTrendChart'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import BalanceSankeyChart from '@/components/BalanceSankeyChart'
+import DivergingBar from '@/components/DivergingBar'
 import { Icon } from '@/components/Icon'
 import { MonthPicker } from '@/components/MonthPicker'
 import { useSwipeGesture } from '@/hooks/useSwipeGesture'
@@ -122,19 +123,40 @@ export default function AnalyticsPage() {
   // 按子账户聚合各账户当月/上月余额（不能直接按主账户键查快照：
   // 多子账户时该键会被覆盖成「最后一个子账户」的余额，导致变动额失真）
   const topChanges = useMemo(() => {
-    return accounts
-      .filter((a) => !a.archived && a.include_in_networth)
-      .map((a) => {
-        const curB = summarizeAccountMonth(a, subAccounts, snapshots, rates, selectedMonth, base)
-        const prevB = summarizeAccountMonth(a, subAccounts, snapshots, rates, prevM, base)
-        if (curB.isZero() && prevB.isZero()) return null
-        const raw = curB.sub(prevB)
-        const diff = a.type === 'asset' ? raw : raw.neg()
-        return { account: a, diff }
-      })
-      .filter((x): x is { account: typeof accounts[0]; diff: Decimal } => x !== null && !x.diff.isZero())
-      .sort((a, b) => b.diff.abs().minus(a.diff.abs()).toNumber())
-  }, [accounts, subAccounts, snapshots, rates, selectedMonth, prevM, base])
+    // 算法收在 money.accountNetChanges：与「净增额去向」共用同一套分类-账户两级汇总，
+    // 因此各账户贡献之和恒等于净资产变化，可加总核对。
+    // filterCat 传入时只统计该分类下的子账户 —— 排行榜因此跟随上方的分类筛选。
+    const deltas = accountNetChanges(
+      accounts, subAccounts, snapshots, rates, selectedMonth, prevM, base, filterCat || undefined,
+    )
+    const rows: { account: typeof accounts[number]; diff: Decimal }[] = []
+    for (const a of accounts) {
+      if (a.archived || !a.include_in_networth) continue
+      const diff = deltas.get(a.id)
+      if (!diff || diff.isZero()) continue
+      rows.push({ account: a, diff })
+    }
+    return rows.sort((a, b) => b.diff.abs().minus(a.diff.abs()).toNumber())
+  }, [accounts, subAccounts, snapshots, rates, selectedMonth, prevM, base, filterCat])
+
+  /** 涨/跌两个页签共用一个刻度，否则切换页签后条长不可比 */
+  const maxAbsDiff = useMemo(
+    () => topChanges.reduce((m, r) => Math.max(m, r.diff.abs().toNumber()), 0),
+    [topChanges],
+  )
+
+  /** 合计行：与顶部 KPI 的环比对齐（未筛选时应当相等） */
+  const totals = useMemo(() => {
+    let upCount = 0
+    let downCount = 0
+    let upSum = new Decimal(0)
+    let downSum = new Decimal(0)
+    for (const { diff } of topChanges) {
+      if (diff.gt(0)) { upCount++; upSum = upSum.add(diff) }
+      else { downCount++; downSum = downSum.add(diff) }
+    }
+    return { upCount, downCount, upSum, downSum, net: upSum.add(downSum) }
+  }, [topChanges])
 
   const filteredChanges = useMemo(() => {
     const filtered = topChanges.filter((x) => (changeTab === 'up' ? x.diff.gt(0) : x.diff.lt(0)))
@@ -152,6 +174,12 @@ export default function AnalyticsPage() {
   const danger = settings?.health_threshold_danger ?? 70
 
   const positive = (v: Decimal) => v.gte(0)
+  /** 分叉条颜色与涨跌同一套语义（涨红跌绿，invert 时反转） */
+  const barColor = (v: Decimal) => {
+    const up = v.gte(0)
+    const warm = invert ? !up : up
+    return warm ? '#ef4444' : '#10b981'
+  }
   const changeColorClass = (v: Decimal) => {
     const up = positive(v)
     if (v.isZero()) return 'text-slate-400'
@@ -284,7 +312,7 @@ export default function AnalyticsPage() {
         {/* 始终保留筛选器位置：当前类型（如负债）暂无账户/数据时置灰，避免布局跳动 */}
         <FilterDropdown
           value={filterCat || '__all__'}
-          onChange={(v) => { setFilterCat(v === '__all__' ? '' : v); setFilterAccount('') }}
+          onChange={(v) => { setFilterCat(v === '__all__' ? '' : v); setFilterAccount(''); setChangePage(0) }}
           placeholder={t('category_trend.all_categories')}
           className="flex-1 min-w-0"
           disabled={focusCatOptions.length === 0}
@@ -403,15 +431,29 @@ export default function AnalyticsPage() {
           <>
             <div className="space-y-2.5">
               {paginatedChanges.map(({ account, diff }) => (
-                <div key={account.id} className="flex items-center gap-3">
+                <Link
+                  key={account.id}
+                  to={`/accounts/${account.id}`}
+                  className="flex items-center gap-3 -mx-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                >
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0" style={{ backgroundColor: account.color }}>
                     <Icon name={account.icon} size={18} />
                   </div>
-                  <div className="flex-1 text-sm">{account.name}</div>
-                  <div className={`text-sm font-medium tabular-nums ${changeColorClass(diff)}`}>
-                    {diff.gte(0) ? '+' : ''}{formatMoney(diff, base, hide)}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm truncate">{account.name}</span>
+                      <span className={`text-sm font-medium tabular-nums shrink-0 ${changeColorClass(diff)}`}>
+                        {diff.gte(0) ? '+' : ''}{formatMoney(diff, base, hide)}
+                      </span>
+                    </div>
+                    <DivergingBar
+                      value={diff.toNumber()}
+                      maxAbs={maxAbsDiff}
+                      color={barColor(diff)}
+                      className="mt-1"
+                    />
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
             {totalChangePages > 1 && (
@@ -435,6 +477,26 @@ export default function AnalyticsPage() {
                 </button>
               </div>
             )}
+
+            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
+              <span className="text-slate-500">{t('analytics.total_up', { count: totals.upCount })}</span>
+              <span className={`tabular-nums ${changeColorClass(totals.upSum)}`}>
+                {totals.upSum.gt(0) ? '+' : ''}{formatMoney(totals.upSum, base, hide)}
+              </span>
+              <span className="text-slate-300">·</span>
+              <span className="text-slate-500">{t('analytics.total_down', { count: totals.downCount })}</span>
+              <span className={`tabular-nums ${changeColorClass(totals.downSum)}`}>
+                {totals.downSum.gt(0) ? '+' : ''}{formatMoney(totals.downSum, base, hide)}
+              </span>
+              <span className="text-slate-300">·</span>
+              <span className="text-slate-500">{t('analytics.total_net')}</span>
+              <span className={`tabular-nums font-medium ${changeColorClass(totals.net)}`}>
+                {totals.net.gt(0) ? '+' : ''}{formatMoney(totals.net, base, hide)}
+              </span>
+              {filterCat && (
+                <span className="text-slate-400">· {categoryLabel(filterCat)}</span>
+              )}
+            </div>
           </>
         )}
       </div>

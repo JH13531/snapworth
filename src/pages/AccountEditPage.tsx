@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams, Link, useLocation } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { ArrowLeft, Trash2, AlertTriangle, X, Plus, ChevronDown, GripVertical } from 'lucide-react'
 import { db, uuid } from '@/db'
 import { useAccount, useSubAccounts, useAccountSnapshots } from '@/hooks/useData'
+import { useGoBack } from '@/hooks/useGoBack'
 import { CATEGORIES, type AccountType, categoryLabel, subAccountIcon, subAccountColor } from '@/types'
 import { CURRENCIES, currencyName } from '@/lib/currency'
 import { ACCOUNT_PRESETS, commonBanks, presetName } from '@/lib/presets'
@@ -299,6 +300,7 @@ export default function AccountEditPage() {
   const location = useLocation()
   const isNew = location.pathname === '/accounts/new'
   const navigate = useNavigate()
+  const goBack = useGoBack('/accounts')
   const existing = useAccount(isNew ? undefined : id)
   const existingSubs = useSubAccounts({ accountId: isNew ? '' : (id ?? ''), includeArchived: true })
   const existingSnaps = useAccountSnapshots(isNew ? '' : (id ?? ''))
@@ -559,7 +561,7 @@ export default function AccountEditPage() {
   return (
     <div className="px-4 lg:max-w-2xl lg:mx-auto pt-4 pb-8">
       <div className="flex items-center gap-3 mb-5">
-        <Link to="/accounts" className="btn-ghost p-2 -ml-2"><ArrowLeft size={20} /></Link>
+        <button onClick={goBack} className="btn-ghost p-2 -ml-2" aria-label={t('common.back')} title={t('common.back')}><ArrowLeft size={20} /></button>
         <h1 className="text-xl font-bold">{isNew ? t('account_edit.new') : t('account_edit.edit')}</h1>
       </div>
 

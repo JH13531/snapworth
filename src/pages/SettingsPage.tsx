@@ -44,6 +44,18 @@ function addCommas(s: string): string {
 }
 
 /**
+ * 提取可展示的错误文案。
+ * WebCrypto 抛出的 DOMException（如 AES-KW 解包失败的 OperationError）message 是
+ * 空字符串，若直接塞进 `error && <div>{error}</div>` 会被判为 falsy 而不渲染，
+ * 表现为「点了按钮完全没反应」。这里兜底到 name，保证任何失败都看得见。
+ */
+function errText(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name || '未知错误'
+  const s = String(err)
+  return s && s !== 'undefined' ? s : '未知错误'
+}
+
+/**
  * 导入后补全所有缺失汇率的历史月份。
  * 遍历所有有外币快照的月份，若该月缺少某外币汇率，则批量拉取并写入。
  * 静默失败（不阻塞导入完成提示）。
@@ -347,7 +359,7 @@ export default function SettingsPage() {
       await refreshFileBackupStatus()
       await useSettingsStore.getState().load()
     } catch (err) {
-      setFbDialog({ ...fbDialog, busy: false, error: err instanceof Error ? err.message : String(err) })
+      setFbDialog({ ...fbDialog, busy: false, error: errText(err) })
     }
   }
 
@@ -427,7 +439,7 @@ export default function SettingsPage() {
         blob, recoveryCode, keyFile,
       })
     } catch (err) {
-      setExportState({ ...exportState, busy: false, error: err instanceof Error ? err.message : String(err) })
+      setExportState({ ...exportState, busy: false, error: errText(err) })
     }
   }
 
@@ -485,7 +497,7 @@ export default function SettingsPage() {
       setCanUndo(false)
       setImportMsg(t('import.undone'))
     } catch (err) {
-      setImportMsg(t('import.undo_failed', { reason: err instanceof Error ? err.message : String(err) }))
+      setImportMsg(t('import.undo_failed', { reason: errText(err) }))
     } finally {
       setUndoing(false)
     }
@@ -601,7 +613,7 @@ export default function SettingsPage() {
       if (err instanceof Error && (err as any).code === 'CSV_FORMAT_UNKNOWN') {
         setCsvFormatHelp(true)
       } else {
-        const msg = t('import.failed', { reason: err instanceof Error ? err.message : String(err) })
+        const msg = t('import.failed', { reason: errText(err) })
         setImportMsg(msg)
       }
     }
@@ -634,7 +646,7 @@ export default function SettingsPage() {
       setImportMsg(t('import.decrypt_ok'))
       promptImportMode(importData)
     } catch (err) {
-      setImportUnlock({ ...importUnlock, busy: false, error: err instanceof Error ? err.message : String(err) })
+      setImportUnlock({ ...importUnlock, busy: false, error: errText(err) })
     }
   }
 
@@ -648,7 +660,7 @@ export default function SettingsPage() {
         if (!isKeyFile(data)) throw new Error(t('import.invalid_keyfile'))
         setImportUnlock({ ...importUnlock, keyFileData: data, error: '' })
       } catch (err) {
-        setImportUnlock({ ...importUnlock, error: t('import.keyfile_invalid', { reason: err instanceof Error ? err.message : String(err) }) })
+        setImportUnlock({ ...importUnlock, error: t('import.keyfile_invalid', { reason: errText(err) }) })
       }
     }
     reader.readAsText(file)
@@ -1272,7 +1284,7 @@ export default function SettingsPage() {
                       await applyImport(importMode.data, 'merge')
                       setImportMode(null)
                     } catch (err) {
-                      setImportMsg(t('import.failed', { reason: err instanceof Error ? err.message : String(err) }))
+                      setImportMsg(t('import.failed', { reason: errText(err) }))
                       setImportMode(null)
                     }
                   }}
@@ -1330,7 +1342,7 @@ export default function SettingsPage() {
                         await applyImport(importMode.data, 'overwrite')
                         setImportMode(null)
                       } catch (err) {
-                        setImportMsg(t('import.failed', { reason: err instanceof Error ? err.message : String(err) }))
+                        setImportMsg(t('import.failed', { reason: errText(err) }))
                         setImportMode(null)
                       }
                     }}

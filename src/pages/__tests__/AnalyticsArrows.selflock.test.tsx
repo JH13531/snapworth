@@ -13,6 +13,13 @@ vi.mock('@/components/CategoryTrendChart', () => ({ default: () => null }))
 vi.mock('@/components/BalanceSankeyChart', () => ({ default: () => null }))
 vi.mock('@/hooks/useSwipeGesture', () => ({ useSwipeGesture: () => {} }))
 
+// 这些用例的数据固定在 2026-08/09，把「当前月」一并钉死。
+// 否则真实时钟前进后，页面默认月份会跑出数据范围，测试随时间腐烂。
+vi.mock('@/lib/date', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/date')>()
+  return { ...actual, currentMonth: () => '2026-09' }
+})
+
 // jsdom 无 matchMedia；必须在模块 import 之前注入（vi.hoisted 早于 import 执行）
 vi.hoisted(() => {
   if (!window.matchMedia) {
